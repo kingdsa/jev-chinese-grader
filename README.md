@@ -166,6 +166,7 @@ Network 面板的请求头里往往只看到 `Referrer Policy: strict-origin-whe
    请求路径 `/api/typesafe/v1/systemone` 会被转发为 `https://api.typesafe.ai/v1/systemone`。
    想换目标地址可以 `TYPESAFE_TARGET=https://your-gateway.com npm run dev`。
 2. **部署到自己的域名**：用 Nginx 之类做同样的反向代理，把 `/api/typesafe` 指向 `https://api.typesafe.ai`。
+   Vercel 静态部署用根目录的 `vercel.json` rewrite 实现同样的转发（`/api/typesafe/:path*` → `https://api.typesafe.ai/:path*`），否则线上请求这个路径会 404。
 3. 如果你有开了 CORS 的自建网关（例如 `https://your-gateway.com/v1`），把 Base URL 填成绝对地址也可以。
 
 界面上如果填的是绝对地址 `https://api.typesafe.ai`，设置面板会直接给出「改用内置代理」的一键按钮；
@@ -194,6 +195,15 @@ location /api/vision-proxy/ {
 ```
 
 也可以直接在设置里把 Base URL 填成你自己开了 CORS 的反向代理地址（例如 `/api/openai/v1`）。
+
+Vercel 部署时，项目已内置带白名单的 Serverless Function `api/vision-proxy/[...path].ts`：
+
+- 默认只允许转发到 `https://api.openai.com`；要接自建网关，在 Vercel 环境变量 `VISION_ALLOWED_HOSTS`
+  里追加域名（逗号分隔，支持 `*.example.com`），否则会返回 403 并提示。
+- 只允许 https（localhost 调试除外），且不跟随重定向，避免变成公开的 SSRF 跳板。
+- 函数侧限制请求体 4 MB、`maxDuration` 60 s（Hobby 上限，见 `vercel.json`）。截图过多或模型
+  特别慢时会超限，可减少截图数量 / 压缩图片，或自己用 Nginx 反代绕过这些平台限制（前端会自动
+  先直连、失败再走代理，两条路都行）。
 
 ## 常见问题
 

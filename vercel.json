@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/typesafe/:path*",
+      "destination": "https://api.typesafe.ai/:path*"
+    }
+  ],
+  "functions": {
+    "api/vision-proxy/**": {
+      "maxDuration": 60
+    }
+  }
+}
