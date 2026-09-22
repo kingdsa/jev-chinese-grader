@@ -12,7 +12,14 @@
 
 import { alignAnswers, askJev, JevError, type JevCallResult } from './jev'
 import type { GradingOptions, JevAnswers, JevQuestions, JevSettings } from '../types/jev'
-import type { ExamQuestion, GradingResult, QualityOutcome, RubricOutcome, SubjectProfile } from '../types/exam'
+import type {
+  AnswerSource,
+  ExamQuestion,
+  GradingResult,
+  QualityOutcome,
+  RubricOutcome,
+  SubjectProfile,
+} from '../types/exam'
 
 /** 未显式传科目时的兜底（语文），保证单独调用判分引擎也能工作。 */
 export const DEFAULT_SUBJECT_PROFILE: SubjectProfile = {
@@ -41,6 +48,8 @@ export interface GradingInput {
   options: GradingOptions
   /** 所属科目：决定 state.subject 与判分 instructions 的学科措辞。 */
   subject?: SubjectProfile
+  /** 作答来自答题截图识别时传入，结果里会保留来源，界面与导出都能追溯。 */
+  answerSource?: AnswerSource
   signal?: AbortSignal
 }
 
@@ -297,6 +306,7 @@ function buildResult(
     model: call.model,
     usage: call.usage,
     elapsedMs: call.elapsedMs,
+    answerSource: input.answerSource ?? null,
     requestState: (call.requestBody as { state?: unknown }).state,
     requestQuestions: (call.requestBody as { questions?: Record<string, unknown> }).questions ?? {},
     rawAnswers: call.answers,
@@ -335,6 +345,7 @@ function blankResult(input: GradingInput): GradingResult {
     reviewReasons: [],
     notes: ['学生答案为空，本地直接判 0 分（未调用 Jev）'],
     elapsedMs: 0,
+    answerSource: input.answerSource ?? null,
     requestState: buildRequestState(question, maxScore, input.studentAnswer, input.subject),
     requestQuestions: {},
     rawAnswers: {},

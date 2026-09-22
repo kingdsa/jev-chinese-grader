@@ -1,6 +1,8 @@
 import { formatScore } from '../lib/format'
 import type { ExamQuestion, GradingResult, RubricPoint } from '../types/exam'
+import type { ScreenshotTranscript } from '../types/vision'
 import { ResultPanel } from './ResultPanel'
+import { ScreenshotPanel } from './ScreenshotPanel'
 
 interface QuestionCardProps {
   question: ExamQuestion
@@ -12,9 +14,16 @@ interface QuestionCardProps {
   error?: string
   running: boolean
   configured: boolean
+  visionConfigured: boolean
+  visionAutoGrade: boolean
+  transcribing: boolean
+  transcript?: ScreenshotTranscript
+  transcriptError?: string
   onMaxScoreChange: (value: number) => void
   onRubricChange: (rubric: RubricPoint[]) => void
   onAnswerChange: (value: string) => void
+  onAnalyzeShots: (files: File[]) => void
+  onClearTranscript: () => void
   onGrade: () => void
   onClear: () => void
 }
@@ -148,6 +157,16 @@ export function QuestionCard(props: QuestionCardProps) {
               {demo.label}
             </button>
           ))}
+          <ScreenshotPanel
+            configured={props.visionConfigured}
+            transcribing={props.transcribing}
+            autoGrade={props.visionAutoGrade}
+            transcript={props.transcript}
+            error={props.transcriptError}
+            demoScreenshot={question.demoScreenshot}
+            onAnalyze={props.onAnalyzeShots}
+            onClearTranscript={props.onClearTranscript}
+          />
         </div>
       </div>
 

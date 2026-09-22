@@ -557,5 +557,9 @@ export const MATH_QUESTIONS: ExamQuestion[] = [
           '(1) 因为 ln x 和 1/x 都是增函数，所以 f(x) 在 (0, +∞) 上单调递增，没有极值。(2) 无论 a 取何值，f(x) 都单调递增。(3) 由单调性可知 ln x ≥ 1 - 1/x 成立。',
       },
     ],
+    demoScreenshot: {
+      label: '演示截图（手写解答）',
+      src: '/demo/math-q10-answer.jpg',
+    },
   },
 ]

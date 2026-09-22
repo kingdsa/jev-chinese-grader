@@ -8,8 +8,19 @@ import { usePersistentState } from './hooks/usePersistentState'
 import { formatScore } from './lib/format'
 import { askJev, isJevConfigured, isNoulAnswer, JEV_DEFAULTS } from './lib/jev'
 import { DEFAULT_GRADING_OPTIONS, describeGradingError, gradeQuestion } from './lib/grading'
-import type { ExamQuestion, GradingResult, RubricPoint } from './types/exam'
+import {
+  buildTranscript,
+  describeVisionError,
+  isVisionConfigured,
+  normalizeVisionEndpoint,
+  pingVision,
+  prepareImageFiles,
+  transcribeAnswerImages,
+  VISION_DEFAULTS,
+} from './lib/vision'
+import type { AnswerSource, ExamQuestion, GradingResult, RubricPoint } from './types/exam'
 import type { GradingOptions, JevSettings } from './types/jev'
+import type { ScreenshotTranscript, VisionSettings } from './types/vision'
 
 const EMPTY_RESULTS: Record<string, GradingResult> = {}
 const EMPTY_ERRORS: Record<string, string> = {}
@@ -30,20 +41,31 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
 export default function App() {
   const [settings, setSettings] = usePersistentState<JevSettings>('jev.settings', JEV_DEFAULTS)
   const [options, setOptions] = usePersistentState<GradingOptions>('jev.options', DEFAULT_GRADING_OPTIONS)
+  const [vision, setVision] = usePersistentState<VisionSettings>('jev.vision', VISION_DEFAULTS)
   const [subjectId, setSubjectId] = usePersistentState<string>('jev.subject', DEFAULT_SUBJECT_ID)
   const [answers, setAnswers] = usePersistentState<Record<string, string>>('jev.answers', {})
   const [maxScores, setMaxScores] = usePersistentState<Record<string, number>>('jev.maxScores', {})
   const [rubrics, setRubrics] = usePersistentState<Record<string, RubricPoint[]>>('jev.rubrics', {})
   const [results, setResults] = usePersistentState<Record<string, GradingResult>>('jev.results', EMPTY_RESULTS)
+  const [transcripts, setTranscripts] = usePersistentState<Record<string, ScreenshotTranscript>>(
+    'jev.transcripts',
+    {},
+  )
   const [errors, setErrors] = useState<Record<string, string>>(EMPTY_ERRORS)
+  const [transcriptErrors, setTranscriptErrors] = useState<Record<string, string>>(EMPTY_ERRORS)
   const [running, setRunning] = useState<Record<string, boolean>>(EMPTY_RUNNING)
+  const [transcribing, setTranscribing] = useState<Record<string, boolean>>(EMPTY_RUNNING)
   const [settingsOpen, setSettingsOpen] = useState(() => !isJevConfigured(JEV_DEFAULTS))
   const [testing, setTesting] = useState(false)
   const [testMessage, setTestMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const [visionTesting, setVisionTesting] = useState(false)
+  const [visionTestMessage, setVisionTestMessage] = useState<{ ok: boolean; text: string } | null>(null)
 
   const controllerRef = useRef<AbortController | null>(null)
+  const visionControllerRef = useRef<AbortController | null>(null)
 
   const configured = isJevConfigured(settings)
+  const visionConfigured = isVisionConfigured(vision)
   const activeSubject = useMemo(() => subjectById(subjectId), [subjectId])
   const bank = activeSubject.questions
   const rubricOf = useCallback(
@@ -74,17 +96,34 @@ export default function App() {
   }, [results])
 
   const gradeOne = useCallback(
-    async (question: ExamQuestion) => {
+    async (
+      question: ExamQuestion,
+      overrides: { answer?: string; source?: AnswerSource } = {},
+    ) => {
       setRunning((prev) => ({ ...prev, [question.id]: true }))
       setErrors((prev) => ({ ...prev, [question.id]: '' }))
       if (!controllerRef.current) controllerRef.current = new AbortController()
       const signal = controllerRef.current.signal
+      const studentAnswer = overrides.answer ?? answers[question.id] ?? ''
+      // 作答文字与识别结果一致（没被人工改过）时，自动带上截图来源，便于复核与导出。
+      const transcript = transcripts[question.id]
+      const autoSource: AnswerSource | undefined =
+        transcript && studentAnswer === transcript.text
+          ? {
+              kind: 'screenshot',
+              model: transcript.model || vision.model,
+              fileNames: transcript.fileNames,
+              elapsedMs: transcript.elapsedMs,
+              at: transcript.at,
+            }
+          : undefined
       try {
         const result = await gradeQuestion({
           question,
           subject: activeSubject,
           maxScore: maxScoreOf(question),
-          studentAnswer: answers[question.id] ?? '',
+          studentAnswer,
+          answerSource: overrides.source ?? autoSource,
           settings,
           options,
           signal,
@@ -96,7 +135,51 @@ export default function App() {
         setRunning((prev) => ({ ...prev, [question.id]: false }))
       }
     },
-    [activeSubject, answers, maxScoreOf, options, setResults, settings],
+    [activeSubject, answers, maxScoreOf, options, setResults, settings, transcripts, vision.model],
+  )
+
+  /** 上传答题截图 → 识图模型转文字 → 填入作答 →（可选）自动交给 Jev 判分。 */
+  const transcribeShots = useCallback(
+    async (question: ExamQuestion, files: File[]) => {
+      if (!visionConfigured) {
+        setTranscriptErrors((prev) => ({ ...prev, [question.id]: '请先在「接口设置」里填写识图模型的 Base URL / API Key / 模型名' }))
+        return
+      }
+      setTranscribing((prev) => ({ ...prev, [question.id]: true }))
+      setTranscriptErrors((prev) => ({ ...prev, [question.id]: '' }))
+      if (!visionControllerRef.current) visionControllerRef.current = new AbortController()
+      const signal = visionControllerRef.current.signal
+      try {
+        const images = await prepareImageFiles(files)
+        const call = await transcribeAnswerImages({
+          settings: vision,
+          images,
+          question,
+          subject: activeSubject,
+          signal,
+        })
+        const transcript = buildTranscript(question.id, call, images)
+        setAnswers((prev) => ({ ...prev, [question.id]: call.text }))
+        setTranscripts((prev) => ({ ...prev, [question.id]: transcript }))
+        if (vision.autoGrade && configured) {
+          await gradeOne(question, {
+            answer: call.text,
+            source: {
+              kind: 'screenshot',
+              model: transcript.model || vision.model,
+              fileNames: transcript.fileNames,
+              elapsedMs: transcript.elapsedMs,
+              at: transcript.at,
+            },
+          })
+        }
+      } catch (error) {
+        setTranscriptErrors((prev) => ({ ...prev, [question.id]: describeVisionError(error) }))
+      } finally {
+        setTranscribing((prev) => ({ ...prev, [question.id]: false }))
+      }
+    },
+    [activeSubject, configured, gradeOne, setAnswers, setTranscripts, vision, visionConfigured],
   )
 
   const gradeAll = useCallback(async () => {
@@ -111,6 +194,8 @@ export default function App() {
   const cancelAll = useCallback(() => {
     controllerRef.current?.abort()
     controllerRef.current = null
+    visionControllerRef.current?.abort()
+    visionControllerRef.current = null
   }, [])
 
   const testConnection = useCallback(async () => {
@@ -137,6 +222,22 @@ export default function App() {
     }
   }, [settings])
 
+  const testVisionConnection = useCallback(async () => {
+    setVisionTesting(true)
+    setVisionTestMessage(null)
+    try {
+      const call = await pingVision(vision)
+      setVisionTestMessage({
+        ok: true,
+        text: `识图连接成功：模型 ${call.model ?? vision.model}，回复「${call.reply}」，耗时 ${call.elapsedMs} ms（${call.url}）`,
+      })
+    } catch (error) {
+      setVisionTestMessage({ ok: false, text: describeVisionError(error) })
+    } finally {
+      setVisionTesting(false)
+    }
+  }, [vision])
+
   const exportResults = useCallback(() => {
     const payload = {
       generated_at: new Date().toISOString(),
@@ -144,6 +245,11 @@ export default function App() {
       subject_id: activeSubject.id,
       endpoint: `${settings.baseUrl.replace(/\/+$/, '')}/v1/systemone`,
       model: settings.model,
+      vision: {
+        endpoint: normalizeVisionEndpoint(vision.baseUrl),
+        model: vision.model,
+        auto_grade: vision.autoGrade,
+      },
       grading_options: options,
       total_score: totalScore,
       total_max_score: totalMax,
@@ -155,6 +261,20 @@ export default function App() {
           stem: question.stem,
           standard_answer: question.standardAnswer,
           student_answer: answers[question.id] ?? '',
+          answer_source: result?.answerSource ?? null,
+          screenshot: (() => {
+            const transcript = transcripts[question.id]
+            if (!transcript) return null
+            return {
+              model: transcript.model,
+              file_names: transcript.fileNames,
+              at: transcript.at,
+              elapsed_ms: transcript.elapsedMs,
+              usage: transcript.usage ?? null,
+              endpoint: transcript.endpoint ?? null,
+              recognized_text: transcript.text,
+            }
+          })(),
           max_score: maxScoreOf(question),
           score: result?.score ?? null,
           needs_review: result?.needsReview ?? null,
@@ -194,6 +314,8 @@ export default function App() {
     settings.model,
     totalMax,
     totalScore,
+    transcripts,
+    vision,
   ])
 
   const resetAll = useCallback(() => {
@@ -213,12 +335,22 @@ export default function App() {
       for (const id of ids) delete next[id]
       return next
     })
+    setTranscripts((prev) => {
+      const next = { ...prev }
+      for (const id of ids) delete next[id]
+      return next
+    })
+    setTranscriptErrors(EMPTY_ERRORS)
     setTestMessage(null)
-  }, [bank, setAnswers, setResults])
+  }, [bank, setAnswers, setResults, setTranscripts])
 
   const updateSettings = useCallback(
     (patch: Partial<JevSettings>) => setSettings((prev) => ({ ...prev, ...patch })),
     [setSettings],
+  )
+  const updateVision = useCallback(
+    (patch: Partial<VisionSettings>) => setVision((prev) => ({ ...prev, ...patch })),
+    [setVision],
   )
   const updateOptions = useCallback(
     (patch: Partial<GradingOptions>) => setOptions((prev) => ({ ...prev, ...patch })),
@@ -233,7 +365,7 @@ export default function App() {
           <div>
             <h1>多学科试卷 AI 评分演示</h1>
             <p>
-              语文 · 数学 · 化学 · 生物 · 英语（作文）· 地理 · 历史 · TypeSafe Jev{' '}
+              语文 · 数学 · 化学 · 生物 · 英语（作文）· 地理 · 历史 · 答题截图经识图模型转文字，再用 TypeSafe Jev{' '}
               <code>noul</code> / <code>choice</code> / <code>score</code> 三原语判分
             </p>
           </div>
@@ -255,11 +387,16 @@ export default function App() {
         <SettingsPanel
           settings={settings}
           options={options}
+          vision={vision}
           testing={testing}
           testMessage={testMessage}
+          visionTesting={visionTesting}
+          visionTestMessage={visionTestMessage}
           onSettingsChange={updateSettings}
           onOptionsChange={updateOptions}
+          onVisionChange={updateVision}
           onTest={testConnection}
+          onTestVision={testVisionConnection}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -292,8 +429,15 @@ export default function App() {
       </p>
 
       <ol className="tips">
-        <li>在「接口设置」里填入 API Key（只存在浏览器 localStorage，不会上传到任何服务器）。</li>
+        <li>
+          在「接口设置」里填入 Jev 的 API Key，以及识图模型（OpenAI 兼容）的 Base URL / API Key / 模型名
+          —— 两者都只存在浏览器 localStorage，不会上传到任何服务器。
+        </li>
         <li>切换上方科目切换题库；每题点「演示作答」按钮填入示例答案，或自己输入。</li>
+        <li>
+          每题「演示作答」后面有「上传答题截图」（也可以直接 Ctrl·V 粘贴）：识图模型先转成文字填入「学生作答」，
+          随后自动交给 Jev 判分；识别文字可人工修改后再重新批改，缩略图可点击看大图或删除重传。
+        </li>
         <li>点「批改本题」看单题判定过程，或「一键批改全部」拿到本科总分并导出 JSON。</li>
       </ol>
 
@@ -310,6 +454,19 @@ export default function App() {
             error={errors[question.id]}
             running={Boolean(running[question.id])}
             configured={configured}
+            visionConfigured={visionConfigured}
+            visionAutoGrade={vision.autoGrade}
+            transcribing={Boolean(transcribing[question.id])}
+            transcript={transcripts[question.id]}
+            transcriptError={transcriptErrors[question.id]}
+            onAnalyzeShots={(files) => void transcribeShots(question, files)}
+            onClearTranscript={() =>
+              setTranscripts((prev) => {
+                const next = { ...prev }
+                delete next[question.id]
+                return next
+              })
+            }
             onMaxScoreChange={(value) =>
               setMaxScores((prev) => ({ ...prev, [question.id]: Number.isFinite(value) ? Math.max(0, value) : 0 }))
             }

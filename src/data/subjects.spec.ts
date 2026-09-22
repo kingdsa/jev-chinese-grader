@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SUBJECTS, subjectById, totalMaxScoreOf } from './subjects'
 import { isBlankAnswer } from '../lib/grading'
@@ -58,6 +60,20 @@ describe('题库完整性', () => {
         expect(full.content.trim().length).toBeGreaterThan(0)
         expect(isBlankAnswer(zero.content)).toBe(false)
       }
+    }
+  })
+
+  it('内置演示截图指向 public/ 下真实存在的图片', () => {
+    const withScreenshot = SUBJECTS.flatMap((subject) => subject.questions).filter(
+      (question) => question.demoScreenshot,
+    )
+    expect(withScreenshot.length).toBeGreaterThan(0)
+    for (const question of withScreenshot) {
+      const demo = question.demoScreenshot
+      if (!demo) continue
+      expect(demo.label.trim().length).toBeGreaterThan(0)
+      expect(demo.src.startsWith('/')).toBe(true)
+      expect(existsSync(resolve(process.cwd(), 'public', demo.src.replace(/^\//, '')))).toBe(true)
     }
   })
 

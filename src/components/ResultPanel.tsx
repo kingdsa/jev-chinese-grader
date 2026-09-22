@@ -56,6 +56,11 @@ export function ResultPanel({ result }: { result: GradingResult }) {
         <div className="result__meta">
           <div className="result__badges">
             {result.blank && <span className="badge badge--muted">空白作答（本地判 0）</span>}
+            {result.answerSource && (
+              <span className="badge badge--muted" title={result.answerSource.fileNames.join('、')}>
+                作答来自截图识别（{result.answerSource.model || '识图模型'}）
+              </span>
+            )}
             {result.needsReview ? (
               <span className="badge badge--warn">建议人工复核</span>
             ) : (

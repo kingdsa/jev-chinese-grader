@@ -1,14 +1,21 @@
 import { isDirectTypesafeUrl, JEV_DEFAULTS } from '../lib/jev'
+import { normalizeVisionEndpoint, VISION_DEFAULTS } from '../lib/vision'
 import type { GradingOptions, JevSettings, RoundingMode } from '../types/jev'
+import type { VisionSettings } from '../types/vision'
 
 interface SettingsPanelProps {
   settings: JevSettings
   options: GradingOptions
+  vision: VisionSettings
   testing: boolean
   testMessage: { ok: boolean; text: string } | null
+  visionTesting: boolean
+  visionTestMessage: { ok: boolean; text: string } | null
   onSettingsChange: (patch: Partial<JevSettings>) => void
   onOptionsChange: (patch: Partial<GradingOptions>) => void
+  onVisionChange: (patch: Partial<VisionSettings>) => void
   onTest: () => void
+  onTestVision: () => void
   onClose: () => void
 }
 
@@ -25,7 +32,7 @@ const ROUNDING_LABELS: Record<RoundingMode, string> = {
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
-  const { settings, options } = props
+  const { settings, options, vision } = props
 
   return (
     <section className="settings">
@@ -82,6 +89,71 @@ export function SettingsPanel(props: SettingsPanelProps) {
           </button>
         </p>
       )}
+
+      <div className="settings__section">
+        <h3>识图模型（答题截图 → 文字，OpenAI 兼容）</h3>
+        <div className="settings__grid">
+          <label className="field">
+            <span>识图 Base URL</span>
+            <input
+              value={vision.baseUrl}
+              placeholder="https://api.openai.com/v1"
+              onChange={(event) => props.onVisionChange({ baseUrl: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>识图模型</span>
+            <input
+              value={vision.model}
+              placeholder="gpt-4o-mini"
+              onChange={(event) => props.onVisionChange({ model: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>识图 API Key（只保存在本地浏览器）</span>
+            <input
+              type="password"
+              value={vision.apiKey}
+              placeholder="sk-..."
+              onChange={(event) => props.onVisionChange({ apiKey: event.target.value })}
+            />
+          </label>
+          <div className="field field--action">
+            <button className="btn" onClick={props.onTestVision} disabled={props.visionTesting}>
+              {props.visionTesting ? '测试中…' : '测试识图连接'}
+            </button>
+            <button
+              className="btn btn--ghost"
+              onClick={() => props.onVisionChange({ baseUrl: VISION_DEFAULTS.baseUrl, model: VISION_DEFAULTS.model })}
+            >
+              恢复 OpenAI 默认
+            </button>
+          </div>
+        </div>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={vision.autoGrade}
+            onChange={(event) => props.onVisionChange({ autoGrade: event.target.checked })}
+          />
+          识别完成后自动提交 Jev 批改本题（取消勾选则只填文字，确认后再手动批改）
+        </label>
+
+        {props.visionTestMessage && (
+          <p className={props.visionTestMessage.ok ? 'hint hint--ok' : 'hint hint--error'}>
+            {props.visionTestMessage.text}
+          </p>
+        )}
+
+        <p className="settings__note">
+          最终请求：<code>{normalizeVisionEndpoint(vision.baseUrl) || '（未填写）'}</code>，携带{' '}
+          <code>Authorization: Bearer &lt;key&gt;</code>，图片以 <code>image_url</code> data URL 放在 messages 里；
+          单次超时 <b>2 分钟</b>（摆图慢的模型也够用），超时或 429 / 5xx 会自动重试 1 次。
+          在 <code>npm run dev / preview</code> 下会优先走内置的 <code>/api/vision-proxy</code> 动态代理（目标地址写在
+          <code>x-vision-target</code> 请求头），避免浏览器 CORS 拦截；部署时可用 Nginx 反代同样的路径。
+        </p>
+      </div>
 
       <div className="settings__grid settings__grid--options">
         <label className="field">

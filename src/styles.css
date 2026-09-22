@@ -210,6 +210,35 @@ code {
   padding: 10px 12px;
 }
 
+.settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.settings__section h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.checkbox input {
+  margin-top: 3px;
+  accent-color: var(--brand);
+}
+
 /* ---------- 提示 ---------- */
 .hint {
   font-size: 12px;
@@ -616,6 +645,178 @@ code {
 .chip:hover {
   border-color: var(--brand);
   color: var(--brand);
+}
+
+/* ---------- 答题截图识别（跟在演示作答按钮后面） ---------- */
+.chip--shot {
+  border-style: solid;
+  border-color: #c9c9e8;
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.chip--shot:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: #e6e8ff;
+}
+
+.chip--shot:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.chip--demo {
+  border-style: solid;
+  border-color: #e0d7c2;
+  color: var(--warn);
+  background: #fdf8ee;
+}
+
+.chip--demo:hover:not(:disabled) {
+  border-color: var(--warn);
+  background: #fbf1de;
+}
+
+.chip--demo:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 缩略图与状态整行换行显示在演示作答下方 */
+.shots {
+  flex-basis: 100%;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shots__thumbs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shots__thumbs li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.shots__thumb {
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  border-radius: 12px;
+  cursor: zoom-in;
+}
+
+.shots__thumb img {
+  display: block;
+  width: 120px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  transition: all 0.15s ease;
+}
+
+.shots__thumb:hover img,
+.shots__thumb:focus-visible img {
+  border-color: var(--brand);
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.2);
+}
+
+.shots__thumb:focus-visible {
+  outline: none;
+}
+
+/* ---------- 截图大图预览 ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  background: rgba(17, 18, 28, 0.74);
+  backdrop-filter: blur(4px);
+  animation: lightbox-in 0.15s ease;
+}
+
+@keyframes lightbox-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lightbox__body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(1100px, 96vw);
+  max-height: 92vh;
+}
+
+.lightbox__body img {
+  max-width: 100%;
+  max-height: calc(92vh - 40px);
+  object-fit: contain;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+}
+
+.lightbox__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #e7e8f5;
+}
+
+.lightbox__hint {
+  color: #b9bbd4;
+}
+
+.shots__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shots__raw summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.shots__raw pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: #fafaff;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
 }
 
 .card__actions {

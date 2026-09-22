@@ -6,24 +6,53 @@
 - 科目：**语文、数学、化学、生物、英语（只看作文）、地理、历史**，每个科目 10 道演示题，
   每题都带 **3 组演示作答**，点一下就能看到不同水平的判分结果
 - 题库全部是**填空、解答、材料分析、写作**这类主观题，没有选择题，学生要写出答案内容或过程
+- **每题都能上传学生答题截图**：先用 OpenAI 兼容的视觉模型（自己填 base_url / api_key / model）把
+  截图转成文字，填入「学生作答」后自动交给 Jev 判分；识别文字可人工修改后再重新批改
 - 判分原语：`noul`（得分点是否命中）、`score`（整体档位）；`choice`（选择题选项）代码仍然保留，
   但演示题库默认不使用
 - 科目之间独立统计、独立导出，作答与结果按科目分别存在浏览器 `localStorage`
-- 没有后端：请求经 **同源代理** `/api/typesafe` 转发到 `https://api.typesafe.ai/v1/systemone`
-  （浏览器直连官方域名会被 CORS 拦截，`vite dev / preview` 已内置该代理）
+- 没有后端：Jev 请求经 **同源代理** `/api/typesafe` 转发到 `https://api.typesafe.ai/v1/systemone`；
+  识图请求经 `/api/vision-proxy` **动态代理**转发到你自己填的模型网关
+  （浏览器直连第三方网关常被 CORS 拦截，`vite dev / preview` 已内置这两个代理）
 - API Key 由使用者在前端填写，只写入本机 `localStorage`
 
 ## 快速开始
 
 ```bash
 npm install
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5199
 ```
 
-1. 到 <https://console.typesafe.ai/keys> 申请 API Key（模型名默认 `jev-latest`）
+1. 到 <https://console.typesafe.ai/keys> 申请 Jev API Key（模型名默认 `jev-latest`）
 2. 页面右上角「接口设置」填入 Key，点「测试连接」确认打通
-3. 用科目栏切换题库；每题点「演示作答」里的按钮填入示例答案 → 点「批改本题」看单题判定过程
-4. 或者点「一键批改全部」→「导出结果 JSON」拿到该科目的整卷成绩
+3. 同一面板的「识图模型」区填 OpenAI 兼容的 Base URL / API Key / 模型名（如 `https://api.openai.com/v1`
+   + `gpt-4o-mini`，或 DashScope、豆包、硅基流动等任一兼容网关），点「测试识图连接」确认打通
+4. 用科目栏切换题库；每题点「演示作答」里的按钮填入示例答案，或直接上传答题截图 → 点「批改本题」看单题判定过程
+5. 或者点「一键批改全部」→「导出结果 JSON」拿到该科目的整卷成绩
+
+## 答题截图 → 识图模型 → Jev 判分
+
+判分链路的输入必须是**可编辑、可审计的文字**，所以截图不直接丢给 Jev，而是分两步：
+
+```
+答题截图（1~4 张）→ OpenAI 兼容视觉模型 chat/completions → 转写文字 →（自动）填入学生作答 → Jev 判分
+```
+
+- 上传方式：点「演示作答」后面的「上传答题截图」按钮，或在作答框里直接 `Ctrl·V` 粘贴截图；
+  上传后原地显示缩略图，可点击查看大图（点空白处或按 Esc 关闭）、单张删除或继续上传
+- 数学第 10 题（导数综合）自带一张**演示学生手写解答截图**（`public/demo/math-q10-answer.jpg`）：
+  点「演示截图（手写解答）」chip 就会把它载入识别流程，走的是和用户上传完全一样的链路；
+  载入后可以删除再换自己的截图
+- 识别前后的图片只存在内存里，**不会写进 localStorage、也不会发给 Jev**；转写出的文字会留在本机，
+  导出的 JSON 里带 `answer_source` 与 `screenshot` 字段，可追溯到模型、文件名、耗时
+- 提示词要求模型「只转写、不解答、不补全」：公式转 LaTeX、表格转 Markdown、看不清标 `[?]`、
+  没有作答时返回 `NO_ANSWER`（按空白作答处理，本地判 0）；给模型的上下文只有题干，**不给标准答案**，
+  避免它顺手把学生答案「改对」
+- 设置里可关掉「识别完成后自动提交 Jev 批改本题」，改成先人工校对文字再手动批改
+- 图片预处理：长边超过 1600px 先等比缩小并转 JPEG，单张上限 12 MB，一次最多 4 张
+- 请求体只用最通用的字段（`model` / `messages` / `image_url`），不发 `temperature`、`max_tokens`，
+  尽量避免各家网关与 o 系列模型的参数限制；Base URL 填 `https://api.openai.com`、`.../v1` 或完整
+  `.../chat/completions` 都能识别
 
 ```bash
 npm run build        # tsc --noEmit + vite build
@@ -83,6 +112,10 @@ Jev 整体档位分值 = 满分 × (score / (档位数 - 1))                   /
 - **满分**：卡片右上角的数字框，改完点「重新批改」即可（会提示结果已过期）
 - **评分要点**：「标准答案与评分要点」里可改文字、改权重、增删得分点，权重按占比折算到满分
 - **档位描述**：在 `src/data/subjects/<科目>.ts` 的 `levels` 里（2~10 档，必须能各自描述清楚）
+- **识图提示词**：`src/lib/vision.ts` 的 `VISION_SYSTEM_PROMPT`（转写规则）与 `buildVisionPrompt`（题目上下文），
+  想让它输出更多结构（例如按小问分段）改这里
+- **演示截图**：把图片放进 `public/demo/`，在对应题目的 `demoScreenshot` 里写 `{ label, src: '/demo/xxx.jpg' }`，
+  界面上就会出现一个载入演示截图的 chip（`subjects.spec.ts` 会校验文件真实存在）
 - **题目**：往对应科目的题库数组里加一条即可；填空/解答/写作题写清 `rubric` 得分点，若确实需要选择题再补 `choice` 字段
 - **新科目**：仿照 `src/data/subjects/math.ts` 建文件，在 `src/data/subjects/index.ts` 的 `SUBJECTS`
   里注册（`label` / `promptLabel` / `blurb` / `guidance` + 题库），题目 id 用 `<科目>-q1` 前缀避免冲突
@@ -91,10 +124,14 @@ Jev 整体档位分值 = 满分 × (score / (档位数 - 1))                   /
 ## 目录结构
 
 ```
+public/
+  demo/                 # 题库内置的演示学生作答截图（构建时原样拷贝）
 src/
   types/jev.ts          # Jev 请求/答案的判别联合类型（noul | choice | score）
-  types/exam.ts         # 题库、科目配置与判分结果的数据结构
+  types/vision.ts       # 识图设置、识别结果与截图识别元信息
+  types/exam.ts         # 题库、科目配置、作答来源与判分结果的数据结构
   lib/jev.ts            # systemone 客户端：URL 归一化、重试/超时、类型守卫 alignAnswers
+  lib/vision.ts         # 识图客户端：OpenAI 兼容 chat/completions、端点归一化、图片压缩、提示词
   lib/grading.ts        # 判分引擎：按科目编译问题 + 权重合成 + 取整裁剪 + 复核提示
   data/subjects/
     index.ts            # 科目注册表：SUBJECTS（label/promptLabel/blurb/guidance + 题库）
@@ -105,9 +142,10 @@ src/
     english.ts          # 10 道英语写作题
     geography.ts        # 10 道地理题
     history.ts          # 10 道历史题
-  components/           # SettingsPanel / SubjectTabs / QuestionCard / ResultPanel / SummaryBar / ScoreRing
-  App.tsx               # 状态（localStorage 持久化）、科目切换、一键批改并发池、导出 JSON
+  components/           # SettingsPanel / SubjectTabs / QuestionCard / ScreenshotPanel / ResultPanel / SummaryBar / ScoreRing
+  App.tsx               # 状态（localStorage 持久化）、科目切换、截图识别、一键批改并发池、导出 JSON
   lib/grading.spec.ts   # 判分链路单元测试（mock fetch）
+  lib/vision.spec.ts    # 识图链路单元测试（mock fetch：端点归一化、CORS 回退、响应解析）
   data/subjects.spec.ts # 题库完整性测试（题量/id/档位/演示作答/无选择题/得分点）
 ```
 
@@ -133,13 +171,41 @@ Network 面板的请求头里往往只看到 `Referrer Policy: strict-origin-whe
 界面上如果填的是绝对地址 `https://api.typesafe.ai`，设置面板会直接给出「改用内置代理」的一键按钮；
 请求失败时错误信息里也会附带上面这段处理建议。
 
+### 识图模型同理：`/api/vision-proxy` 动态代理
+
+识图网关是使用者在页面上现填的，没法写进 `vite.config.ts` 的静态 target，所以做成了一个
+「目标地址放在请求头」的动态代理：
+
+```
+POST /api/vision-proxy/chat/completions
+Authorization: Bearer <识图 Key>
+x-vision-target: https://api.openai.com/v1
+```
+
+上游就是 `https://api.openai.com/v1/chat/completions`。前端在 dev / preview 里默认**先代理、后直连**，
+直连被 CORS 拦时会自动换成代理重试；生产部署时可用 Nginx 提供同样语义的路径：
+
+```nginx
+location /api/vision-proxy/ {
+    proxy_pass https://your-vision-gateway/;   # 按需改写 / 或用 mini-proxy 读取 x-vision-target
+    proxy_set_header x-vision-target $http_x_vision_target;
+    proxy_set_header authorization  $http_authorization;
+}
+```
+
+也可以直接在设置里把 Base URL 填成你自己开了 CORS 的反向代理地址（例如 `/api/openai/v1`）。
+
 ## 常见问题
 
-- **Key 会泄露吗？** 不会上传到任何服务器，只存在 `localStorage`；但演示页请勿在公共电脑上长期保留。
-- **429 / 5xx**：客户端自带指数退避重试（最多 2 次），失败会在题目卡片上提示原因。
+- **Key 会泄露吗？** Jev 与识图两套 Key 都不会上传到任何服务器，只存在 `localStorage`；
+  但演示页请勿在公共电脑上长期保留。
+- **429 / 5xx**：两个客户端都自带指数退避重试，失败会在题目卡片上提示原因；超时会提示换更快的模型或压缩图片。
 - **为什么不让模型直接输出自然语言评语？** 评分要能被代码消费：类型化答案 + 概率 + 置信度，
   比解析一段文字更可靠，也更容易把阈值、权重、复核规则写死在代码里。
-- **成本**：一次请求内含多个问题（并行评估），每个科目 10 道题大约 10 次请求，token 数在结果面板里可见。
+- **为什么截图不直接给 Jev？** Jev 判分吃的是文本 state；先转写再判分，输入可编辑、可复核，
+  也避免手写体直接干扰评分点判定。转写失败的截图可人工修正文字后再批改。
+- **成本**：Jev 一次请求内含多个问题（并行评估），每个科目 10 道题大约 10 次请求；
+  识图按张计费，一次识别 1~4 张图，结果面板与导出 JSON 里都能看到 token 数。
 
 ## 参考
 

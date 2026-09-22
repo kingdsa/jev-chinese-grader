@@ -41,6 +41,14 @@ export interface DemoAnswer {
   content: string
 }
 
+/** 内置的演示学生作答截图（放在 public/ 下，界面上一键载入并识别）。 */
+export interface DemoScreenshot {
+  /** 演示按钮文案，例如「演示截图（手写解答）」。 */
+  label: string
+  /** public/ 下的路径，例如 /demo/math-q10-answer.jpg。 */
+  src: string
+}
+
 export interface ChoiceSetup {
   /** 选项：选项号 -> 选项内容。 */
   options: Record<string, string>
@@ -66,6 +74,8 @@ export interface ExamQuestion {
   /** 选择题才有：交给 Jev Choice 原语判选项。 */
   choice?: ChoiceSetup
   demoAnswers: DemoAnswer[]
+  /** 该题自带的学生作答截图示例，用户也可以换成自己上传的。 */
+  demoScreenshot?: DemoScreenshot
 }
 
 export interface RubricOutcome {
@@ -95,6 +105,16 @@ export interface QualityOutcome {
   probabilities: Record<string, number>
 }
 
+/** 学生作答的来源：手动输入，还是由答题截图识别而来。 */
+export interface AnswerSource {
+  kind: 'screenshot'
+  /** 识图模型名。 */
+  model: string
+  fileNames: string[]
+  elapsedMs: number
+  at: string
+}
+
 export interface GradingResult {
   questionId: string
   maxScore: number
@@ -114,6 +134,8 @@ export interface GradingResult {
   model?: string
   usage?: { input_tokens?: number; output_tokens?: number }
   elapsedMs: number
+  /** 作答来自截图识别时记录来源（手动输入为 null）。 */
+  answerSource: AnswerSource | null
   /** 便于界面展示与调试的原始请求 / 响应。 */
   requestState: unknown
   requestQuestions: Record<string, unknown>
