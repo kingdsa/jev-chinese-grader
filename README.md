@@ -199,17 +199,15 @@ location /api/vision-proxy/ {
 Vercel 部署时，项目已内置带白名单的 Serverless Function `api/vision-proxy/chat/completions.ts`
 （文件名即路由，非 Next 项目的 `/api` 不支持 `[...path]` 动态段，写成固定路径才生效）：
 
-- **默认开放**（`VISION_ALLOWED_HOSTS` 未设置 = `*`）：放行任意公网 https 地址，多人各自网关不同
-  时开箱即用。会拦截 localhost / 内网段 / link-local / 云元数据（`169.254.169.254` 等），但域名
-  解析层面的 DNS rebinding 无法完全防住；函数相当于公共转发服务，建议只对可信人群开放，并留意
-  Vercel 函数用量。
+- **默认开放**（`VISION_ALLOWED_HOSTS` 未设置 = `*`）：放行任意公网 http / https 地址，多人各自
+  网关不同时开箱即用。会拦截 localhost / 内网段 / link-local / 云元数据（`169.254.169.254` 等），
+  但域名解析层面的 DNS rebinding 无法完全防住；函数相当于公共转发服务，建议只对可信人群开放，
+  并留意 Vercel 函数用量。
 - 要收紧就设 `VISION_ALLOWED_HOSTS=域名列表`（逗号分隔，支持 `*.example.com`），不在列表内会返回
-  403；列表里加 `*` 可再放开。注意 `*` 不代表允许 http：http 网关还要单独写域名，写成
-  `*,http-gw.example.com`。
-- 默认只允许 https；只支持 http 的网关必须显式写进 `VISION_ALLOWED_HOSTS` 才放行（http 会明文
-  传输 Key、图片与转写文字，公网上不要这么用）。函数不跟随重定向，避免变成公开的 SSRF 跳板。
-  注意 Vercel 函数跑在云端，局域网 / 内网 http 地址（如 `192.168.x.x`）它访问不到，需要公网可达
-  的 https 地址。
+  403；列表里加 `*` 可再放开。白名单只管域名、不管协议，域名允许则 http / https 都放行。
+- 允许 http，但要注意 http 会把用户的 Key、图片与转写文字明文发到上游，只建议用于可信的自建网关。
+  函数不跟随重定向，避免变成公开的 SSRF 跳板。另外 Vercel 函数跑在云端，局域网 / 内网地址
+  （如 `192.168.x.x`）它访问不到，需要公网可达的地址。
 - 函数侧限制请求体 4 MB、`maxDuration` 60 s（Hobby 上限，见 `vercel.json`）。截图过多或模型
   特别慢时会超限，可减少截图数量 / 压缩图片，或自己用 Nginx 反代绕过这些平台限制（前端会自动
   先直连、失败再走代理，两条路都行）。
@@ -225,7 +223,7 @@ Vercel 部署时，项目已内置带白名单的 Serverless Function `api/visio
   也避免手写体直接干扰评分点判定。转写失败的截图可人工修正文字后再批改。
 - **成本**：Jev 一次请求内含多个问题（并行评估），每个科目 10 道题大约 10 次请求；
   识图按张计费，一次识别 1~4 张图，结果面板与导出 JSON 里都能看到 token 数。
-- **多人用、每人识图网关不同怎么办？** 默认已放行任意公网 https 网关，无需配置（见上文）；
+- **多人用、每人识图网关不同怎么办？** 默认已放行任意公网 http / https 网关，无需配置（见上文）；
   如果网关自己支持 CORS（预检返回 `Access-Control-Allow-Origin`），浏览器会直连成功、根本不走
   代理；也可以用 `VISION_ALLOWED_HOSTS` 收紧范围，或让每人自建开了 CORS 的反代填进 Base URL。
 

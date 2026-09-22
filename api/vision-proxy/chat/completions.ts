@@ -4,10 +4,10 @@
  * 文件名即路由：本项目只请求 /api/vision-proxy/chat/completions，
  * 所以用固定路径文件而不是 [...path]（非 Next 项目的 /api 不做动态段路由，会 404）。
  *
- * 默认开放：允许转发到任意公网 https 地址（多人各自网关不同时开箱即用），
+ * 默认开放：允许转发到任意公网 http / https 地址（多人各自网关不同时开箱即用），
  * 并拦截 localhost / 内网 / link-local / 云元数据等地址（DNS rebinding 无法完全防住）。
- * 要收紧就设 VISION_ALLOWED_HOSTS=域名列表（逗号分隔，支持 *.example.com）；
- * 默认只接受 https；只支持 http 的网关必须单独把域名写进 VISION_ALLOWED_HOSTS（会明文传输 Key 与图片）。
+ * 要收紧就设 VISION_ALLOWED_HOSTS=域名列表（逗号分隔，支持 *.example.com），白名单只管域名、不管协议。
+ * 注意 http 会把用户的 Key、图片与转写文字明文发到上游，建议只用于可信的自建网关。
  *
  *   POST /api/vision-proxy/chat/completions
  *   x-vision-target: https://api.openai.com/v1
@@ -108,16 +108,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const declared = explicitHosts()
   const patterns = declared.length > 0 ? declared : DEFAULT_ALLOWED_HOSTS
   const openMode = patterns.some((host) => host === '*' || host === 'all')
-  // `*` 本身不代表「允许 http」，http 仍要逐个域名显式声明（此时会明文传输 Key 与图片）。
-  const httpHosts = declared.filter((host) => host !== '*' && host !== 'all')
-  const isLocalhost = /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname)
-  const httpAllowed = isLocalhost || hostAllowed(parsed.hostname, httpHosts)
-  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && httpAllowed)) {
-    sendJson(
-      res,
-      400,
-      'x-vision-target 必须是 https 地址；如果网关只支持 http，请把它的域名写进环境变量 VISION_ALLOWED_HOSTS 显式放行',
-    )
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    sendJson(res, 400, `x-vision-target 只支持 http / https 地址，收到：${parsed.protocol}`)
     return
   }
 

@@ -37,7 +37,7 @@ export const VISION_MAX_FILE_MB = 12
 
 export const VISION_CORS_HINT =
   'npm run dev / preview 已内置 /api/vision-proxy 动态代理（目标地址放在 x-vision-target 请求头里）；' +
-  'Vercel 部署已内置同名 Serverless Function（默认放行任意公网 https 网关，可用环境变量 VISION_ALLOWED_HOSTS 收紧为白名单），' +
+  'Vercel 部署已内置同名 Serverless Function（默认放行任意公网 http / https 网关，可用环境变量 VISION_ALLOWED_HOSTS 收紧为白名单），' +
   '其他环境可以用 Nginx 把 /api/vision-proxy 反向代理到你的模型网关。'
 
 const RETRYABLE_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
