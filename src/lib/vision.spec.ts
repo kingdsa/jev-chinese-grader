@@ -19,10 +19,8 @@ import type { VisionSettings } from '../types/vision'
 
 const question: ExamQuestion = CHINESE_QUESTIONS[0]
 const settings: VisionSettings = {
-  baseUrl: 'https://api.openai.com/v1',
-  model: 'gpt-4o-mini',
+  ...VISION_DEFAULTS,
   apiKey: 'sk-test',
-  autoGrade: true,
 }
 
 const image = { dataUrl: 'data:image/jpeg;base64,AAAA', name: 'answer.jpg' }

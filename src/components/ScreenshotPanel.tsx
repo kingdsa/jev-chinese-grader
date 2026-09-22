@@ -174,7 +174,7 @@ export function ScreenshotPanel(props: ScreenshotPanelProps) {
         ref={rootRef}
         className="chip chip--shot"
         disabled={transcribing}
-        title="上传后由识图模型转成文字填入作答框；也可以直接 Ctrl·V 粘贴截图（图片只用于本次识别，不写进 localStorage）"
+        title="上传后由识别引擎（EasyOCR 或识图模型）转成文字填入作答框；也可以直接 Ctrl·V 粘贴截图（图片只用于本次识别，不写进 localStorage）"
         onClick={() => inputRef.current?.click()}
       >
         {transcribing ? '识别截图中…' : hasLocalShots ? '继续上传截图' : '上传答题截图'}
@@ -225,7 +225,9 @@ export function ScreenshotPanel(props: ScreenshotPanelProps) {
               清除截图与识别结果
             </button>
             {!configured && (
-              <span className="hint hint--error">请先在「接口设置」里填写识图模型的 Base URL / API Key / 模型名</span>
+              <span className="hint hint--error">
+                请先在「接口设置」里配置识别引擎：EasyOCR Access Key，或识图模型的 Base URL / API Key / 模型名
+              </span>
             )}
             {notice && (
               <span className={notice.error ? 'hint hint--error' : 'hint'}>{notice.text}</span>
@@ -235,12 +237,14 @@ export function ScreenshotPanel(props: ScreenshotPanelProps) {
           {recognized &&
             (recognizedText ? (
               <p className="hint hint--ok">
-                已识别（{transcript?.model || '识图模型'} · {formatDuration(transcript?.elapsedMs ?? 0)}）
+                已识别（{transcript?.engine === 'easyocr' ? 'EasyOCR' : transcript?.model || '识图模型'} ·{' '}
+                {formatDuration(transcript?.elapsedMs ?? 0)}
+                {transcript?.usage?.cost !== undefined ? ` · ${transcript.usage.cost} 点` : ''}）
                 → 文字已填入上方作答{autoGrade ? '并自动提交 Jev 判分' : '，确认无误后再点「批改本题」'}
               </p>
             ) : (
               <p className="hint">
-                截图中没有识别到可辨认的作答（模型返回 NO_ANSWER），已按空白作答处理；如果有误可手动输入。
+                截图中没有识别到可辨认的作答（识别结果为空），已按空白作答处理；如果有误可手动输入。
               </p>
             ))}
 

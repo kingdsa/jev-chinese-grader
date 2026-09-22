@@ -8,6 +8,9 @@
   "functions": {
     "api/vision-proxy/chat/completions.ts": {
       "maxDuration": 60
+    },
+    "api/easyocr-proxy.ts": {
+      "maxDuration": 60
     }
   }
 }

@@ -6,14 +6,15 @@
 - 科目：**语文、数学、化学、生物、英语（只看作文）、地理、历史**，每个科目 10 道演示题，
   每题都带 **3 组演示作答**，点一下就能看到不同水平的判分结果
 - 题库全部是**填空、解答、材料分析、写作**这类主观题，没有选择题，学生要写出答案内容或过程
-- **每题都能上传学生答题截图**：先用 OpenAI 兼容的视觉模型（自己填 base_url / api_key / model）把
-  截图转成文字，填入「学生作答」后自动交给 Jev 判分；识别文字可人工修改后再重新批改
+- **每题都能上传学生答题截图**：识别引擎二选一 —— **EasyOCR 在线 OCR**（只填 Access Key）或
+  **OpenAI 兼容视觉模型**（自己填 base_url / api_key / model）；截图先转成文字，填入「学生作答」后自动交给 Jev 判分；
+  识别文字可人工修改后再重新批改
 - 判分原语：`noul`（得分点是否命中）、`score`（整体档位）；`choice`（选择题选项）代码仍然保留，
   但演示题库默认不使用
 - 科目之间独立统计、独立导出，作答与结果按科目分别存在浏览器 `localStorage`
 - 没有后端：Jev 请求经 **同源代理** `/api/typesafe` 转发到 `https://api.typesafe.ai/v1/systemone`；
-  识图请求经 `/api/vision-proxy` **动态代理**转发到你自己填的模型网关
-  （浏览器直连第三方网关常被 CORS 拦截，`vite dev / preview` 已内置这两个代理）
+  识别请求经 `/api/vision-proxy`（动态目标）或 `/api/easyocr-proxy`（EasyOCR）转发
+  （浏览器直连第三方网关常被 CORS 拦截，`vite dev / preview` 已内置这三个代理）
 - API Key 由使用者在前端填写，只写入本机 `localStorage`
 
 ## 快速开始
@@ -25,18 +26,37 @@ npm run dev          # http://localhost:5199
 
 1. 到 <https://console.typesafe.ai/keys> 申请 Jev API Key（模型名默认 `jev-latest`）
 2. 页面右上角「接口设置」填入 Key，点「测试连接」确认打通
-3. 同一面板的「识图模型」区填 OpenAI 兼容的 Base URL / API Key / 模型名（如 `https://api.openai.com/v1`
-   + `gpt-4o-mini`，或 DashScope、豆包、硅基流动等任一兼容网关），点「测试识图连接」确认打通
+3. 同一面板的「识别引擎」区二选一并点对应的测试按钮：
+   - **EasyOCR**：填 Access Key（到 <https://console.easyocr.org/> 创建），点「测试 EasyOCR 连接」；
+   - **OpenAI 兼容视觉模型**：填 Base URL / API Key / 模型名（如 `https://api.openai.com/v1` + `gpt-4o-mini`，
+     或 DashScope、豆包、硅基流动等任一兼容网关），点「测试识图连接」确认打通
 4. 用科目栏切换题库；每题点「演示作答」里的按钮填入示例答案，或直接上传答题截图 → 点「批改本题」看单题判定过程
 5. 或者点「一键批改全部」→「导出结果 JSON」拿到该科目的整卷成绩
 
-## 答题截图 → 识图模型 → Jev 判分
+## 答题截图 → OCR / 识图 → Jev 判分
 
 判分链路的输入必须是**可编辑、可审计的文字**，所以截图不直接丢给 Jev，而是分两步：
 
 ```
-答题截图（1~4 张）→ OpenAI 兼容视觉模型 chat/completions → 转写文字 →（自动）填入学生作答 → Jev 判分
+答题截图（1~4 张）→ 识别引擎（EasyOCR / OpenAI 兼容视觉模型）→ 转写文字 →（自动）填入学生作答 → Jev 判分
 ```
+
+识别引擎在「接口设置」里**二选一**，两套引擎共用同一套本地流程（文字可编辑、结果可追溯）：
+
+- **EasyOCR 在线 OCR**（<https://easyocr.org/zh/quick-start>）：只需 Access Key，
+  `multipart/form-data` POST 到 `https://console.easyocr.org/api/ocr`（请求头 `X-Access-Key`）；
+  官方一次只收一张图（≤ 3 MB），多张截图会逐张识别、文字用换行拼接；返回的 `words[]` 带坐标，
+  代码按 y 聚成行、行内按 x 排序拼成文本（中英混排自动补空格）。点数按图片最大边长扣
+  （≤100px 1 点，601–1980px 20 点），新账号赠送 10,000 点；500 / 503（含服务端「错误码 -1」）
+  会按官方建议退避重试 2 次并提示预扣点数自动退还；「测试连接」上传一张带文字的小图验证 Key，
+  消耗 1~2 点。
+- **OpenAI 兼容视觉模型**：提示词要求模型「只转写、不解答、不补全」：公式转 LaTeX、表格转 Markdown、
+  看不清标 `[?]`、没有作答时返回 `NO_ANSWER`（按空白作答处理，本地判 0）；给模型的上下文只有题干，
+  **不给标准答案**，避免它顺手把学生答案「改对」。请求体只用最通用的字段
+  （`model` / `messages` / `image_url`），不发 `temperature`、`max_tokens`，尽量避免各家网关与 o 系列
+  模型的参数限制；Base URL 填 `https://api.openai.com`、`.../v1` 或完整 `.../chat/completions` 都能识别。
+
+其余行为两套引擎一致：
 
 - 上传方式：点「演示作答」后面的「上传答题截图」按钮，或在作答框里直接 `Ctrl·V` 粘贴截图；
   上传后原地显示缩略图，可点击查看大图（点空白处或按 Esc 关闭）、单张删除或继续上传
@@ -44,15 +64,10 @@ npm run dev          # http://localhost:5199
   点「演示截图（手写解答）」chip 就会把它载入识别流程，走的是和用户上传完全一样的链路；
   载入后可以删除再换自己的截图
 - 识别前后的图片只存在内存里，**不会写进 localStorage、也不会发给 Jev**；转写出的文字会留在本机，
-  导出的 JSON 里带 `answer_source` 与 `screenshot` 字段，可追溯到模型、文件名、耗时
-- 提示词要求模型「只转写、不解答、不补全」：公式转 LaTeX、表格转 Markdown、看不清标 `[?]`、
-  没有作答时返回 `NO_ANSWER`（按空白作答处理，本地判 0）；给模型的上下文只有题干，**不给标准答案**，
-  避免它顺手把学生答案「改对」
+  导出的 JSON 里带 `answer_source` 与 `screenshot` 字段（含 `engine`、模型、文件名、耗时、扣点），可追溯
 - 设置里可关掉「识别完成后自动提交 Jev 批改本题」，改成先人工校对文字再手动批改
-- 图片预处理：长边超过 1600px 先等比缩小并转 JPEG，单张上限 12 MB，一次最多 4 张
-- 请求体只用最通用的字段（`model` / `messages` / `image_url`），不发 `temperature`、`max_tokens`，
-  尽量避免各家网关与 o 系列模型的参数限制；Base URL 填 `https://api.openai.com`、`.../v1` 或完整
-  `.../chat/completions` 都能识别
+- 图片预处理：视觉模型长边超过 1600px 先等比缩小并转 JPEG，单张上限 12 MB；EasyOCR 会自动压到 3 MB 以内
+  （同样长边 1600px），一次最多 4 张
 
 ```bash
 npm run build        # tsc --noEmit + vite build
@@ -112,8 +127,9 @@ Jev 整体档位分值 = 满分 × (score / (档位数 - 1))                   /
 - **满分**：卡片右上角的数字框，改完点「重新批改」即可（会提示结果已过期）
 - **评分要点**：「标准答案与评分要点」里可改文字、改权重、增删得分点，权重按占比折算到满分
 - **档位描述**：在 `src/data/subjects/<科目>.ts` 的 `levels` 里（2~10 档，必须能各自描述清楚）
-- **识图提示词**：`src/lib/vision.ts` 的 `VISION_SYSTEM_PROMPT`（转写规则）与 `buildVisionPrompt`（题目上下文），
-  想让它输出更多结构（例如按小问分段）改这里
+- **识图提示词**（仅视觉模型）：`src/lib/vision.ts` 的 `VISION_SYSTEM_PROMPT`（转写规则）与 `buildVisionPrompt`（题目上下文），
+  想让它输出更多结构（例如按小问分段）改这里；EasyOCR 不需要提示词，`words[]` 的拼行规则在 `src/lib/easyocr.ts`
+  的 `wordsToText` 里（想保留原始坐标或按块输出改这里）
 - **演示截图**：把图片放进 `public/demo/`，在对应题目的 `demoScreenshot` 里写 `{ label, src: '/demo/xxx.jpg' }`，
   界面上就会出现一个载入演示截图的 chip（`subjects.spec.ts` 会校验文件真实存在）
 - **题目**：往对应科目的题库数组里加一条即可；填空/解答/写作题写清 `rubric` 得分点，若确实需要选择题再补 `choice` 字段
@@ -131,7 +147,8 @@ src/
   types/vision.ts       # 识图设置、识别结果与截图识别元信息
   types/exam.ts         # 题库、科目配置、作答来源与判分结果的数据结构
   lib/jev.ts            # systemone 客户端：URL 归一化、重试/超时、类型守卫 alignAnswers
-  lib/vision.ts         # 识图客户端：OpenAI 兼容 chat/completions、端点归一化、图片压缩、提示词
+  lib/vision.ts         # 视觉模型客户端：OpenAI 兼容 chat/completions、端点归一化、图片压缩、提示词
+  lib/easyocr.ts        # EasyOCR 客户端：multipart 上传、words[] → 文本、错误映射、图片压缩、连接测试
   lib/grading.ts        # 判分引擎：按科目编译问题 + 权重合成 + 取整裁剪 + 复核提示
   data/subjects/
     index.ts            # 科目注册表：SUBJECTS（label/promptLabel/blurb/guidance + 题库）
@@ -145,8 +162,12 @@ src/
   components/           # SettingsPanel / SubjectTabs / QuestionCard / ScreenshotPanel / ResultPanel / SummaryBar / ScoreRing
   App.tsx               # 状态（localStorage 持久化）、科目切换、截图识别、一键批改并发池、导出 JSON
   lib/grading.spec.ts   # 判分链路单元测试（mock fetch）
-  lib/vision.spec.ts    # 识图链路单元测试（mock fetch：端点归一化、CORS 回退、响应解析）
+  lib/vision.spec.ts    # 视觉模型链路单元测试（mock fetch：端点归一化、CORS 回退、响应解析）
+  lib/easyocr.spec.ts   # EasyOCR 链路单元测试（mock fetch：端点选择、words→文本、报错文案）
   data/subjects.spec.ts # 题库完整性测试（题量/id/档位/演示作答/无选择题/得分点）
+api/
+  vision-proxy/chat/completions.ts  # Vercel：动态目标的识图代理（白名单 + 内网拦截）
+  easyocr-proxy.ts                  # Vercel：EasyOCR 同源代理（固定官方上游，可用 EASYOCR_TARGET 覆盖）
 ```
 
 ## 关于 CORS（重要）
@@ -196,6 +217,30 @@ location /api/vision-proxy/ {
 
 也可以直接在设置里把 Base URL 填成你自己开了 CORS 的反向代理地址（例如 `/api/openai/v1`）。
 
+### EasyOCR 同理：`/api/easyocr-proxy` 同源代理
+
+EasyOCR 官方接口本身就返回 `Access-Control-Allow-Origin`，浏览器通常能直连；代理只是兜底
+（内网 / 网关限制 / 想固定上游时用）：
+
+```
+POST /api/easyocr-proxy        →  POST https://console.easyocr.org/api/ocr
+X-Access-Key: <用户的 EasyOCR Access Key>
+（multipart/form-data：file + access_key）
+```
+
+前端对官方地址默认「dev / preview 先代理后直连，生产先直连后代理」；填自定义镜像地址时只直连。
+`vite dev / preview` 的代理目标可用 `EASYOCR_TARGET=https://mirror.example.com/api/ocr npm run dev` 覆盖；
+Vercel 部署用 `api/easyocr-proxy.ts`，上游固定官方（可用同名环境变量覆盖），不会变成公开转发服务。
+Nginx 反代示例：
+
+```nginx
+location = /api/easyocr-proxy {
+    proxy_pass https://console.easyocr.org/api/ocr;
+    proxy_set_header content-type  $content_type;   # 保留 multipart boundary
+    proxy_set_header x-access-key  $http_x_access_key;
+}
+```
+
 Vercel 部署时，项目已内置带白名单的 Serverless Function `api/vision-proxy/chat/completions.ts`
 （文件名即路由，非 Next 项目的 `/api` 不支持 `[...path]` 动态段，写成固定路径才生效）：
 
@@ -214,15 +259,18 @@ Vercel 部署时，项目已内置带白名单的 Serverless Function `api/visio
 
 ## 常见问题
 
-- **Key 会泄露吗？** Jev 与识图两套 Key 都不会上传到任何服务器，只存在 `localStorage`；
+- **Key 会泄露吗？** Jev、EasyOCR、识图模型三套 Key 都不会上传到任何服务器，只存在 `localStorage`；
   但演示页请勿在公共电脑上长期保留。
-- **429 / 5xx**：两个客户端都自带指数退避重试，失败会在题目卡片上提示原因；超时会提示换更快的模型或压缩图片。
+- **429 / 5xx**：三个客户端都自带指数退避重试，失败会在题目卡片上提示原因；超时会提示换更快的模型或压缩图片。
 - **为什么不让模型直接输出自然语言评语？** 评分要能被代码消费：类型化答案 + 概率 + 置信度，
   比解析一段文字更可靠，也更容易把阈值、权重、复核规则写死在代码里。
 - **为什么截图不直接给 Jev？** Jev 判分吃的是文本 state；先转写再判分，输入可编辑、可复核，
   也避免手写体直接干扰评分点判定。转写失败的截图可人工修正文字后再批改。
 - **成本**：Jev 一次请求内含多个问题（并行评估），每个科目 10 道题大约 10 次请求；
-  识图按张计费，一次识别 1~4 张图，结果面板与导出 JSON 里都能看到 token 数。
+  识别按张/按边长计费，一次识别 1~4 张图，结果面板与导出 JSON 里都能看到 token 数或 EasyOCR 扣点。
+- **EasyOCR 和视觉模型怎么选？** EasyOCR 便宜、快、只要一个 Access Key，适合印刷体作答截图；
+  手写体、公式、表格等结构复杂的截图用视觉模型转写更稳（EasyOCR 只输出文字与置信度，不做 LaTeX / Markdown）。
+  两者都识别完成后自动填入作答框，可切回另一引擎重新识别对比。
 - **多人用、每人识图网关不同怎么办？** 默认已放行任意公网 http / https 网关，无需配置（见上文）；
   如果网关自己支持 CORS（预检返回 `Access-Control-Allow-Origin`），浏览器会直连成功、根本不走
   代理；也可以用 `VISION_ALLOWED_HOSTS` 收紧范围，或让每人自建开了 CORS 的反代填进 Base URL。
@@ -233,6 +281,8 @@ Vercel 部署时，项目已内置带白名单的 Serverless Function `api/visio
 - Quick start：<https://docs.typesafe.ai/introduction/quickstart>
 - 三种原语：<https://docs.typesafe.ai/primitives>（Choice / Score / Noul）
 - API Key 与 Playground：<https://console.typesafe.ai/>
+- EasyOCR 快速开始：<https://easyocr.org/zh/quick-start>
+- EasyOCR 控制台（创建 Access Key / 查看点数）：<https://console.easyocr.org/>
 
 ## 友情链接
 

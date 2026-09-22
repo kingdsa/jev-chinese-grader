@@ -6,6 +6,13 @@ import { SummaryBar } from './components/SummaryBar'
 import { DEFAULT_SUBJECT_ID, SUBJECTS, subjectById } from './data/subjects'
 import { usePersistentState } from './hooks/usePersistentState'
 import { formatScore } from './lib/format'
+import {
+  describeEasyOcrError,
+  normalizeEasyOcrEndpoint,
+  pingEasyOcr,
+  prepareEasyOcrImages,
+  transcribeWithEasyOcr,
+} from './lib/easyocr'
 import { askJev, isJevConfigured, isNoulAnswer, JEV_DEFAULTS } from './lib/jev'
 import { DEFAULT_GRADING_OPTIONS, describeGradingError, gradeQuestion } from './lib/grading'
 import {
@@ -13,6 +20,7 @@ import {
   describeVisionError,
   isVisionConfigured,
   normalizeVisionEndpoint,
+  parseVisionSettings,
   pingVision,
   prepareImageFiles,
   transcribeAnswerImages,
@@ -20,7 +28,7 @@ import {
 } from './lib/vision'
 import type { AnswerSource, ExamQuestion, GradingResult, RubricPoint } from './types/exam'
 import type { GradingOptions, JevSettings } from './types/jev'
-import type { ScreenshotTranscript, VisionSettings } from './types/vision'
+import type { ScreenshotTranscript, VisionCallResult, VisionSettings } from './types/vision'
 
 const EMPTY_RESULTS: Record<string, GradingResult> = {}
 const EMPTY_ERRORS: Record<string, string> = {}
@@ -41,7 +49,7 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
 export default function App() {
   const [settings, setSettings] = usePersistentState<JevSettings>('jev.settings', JEV_DEFAULTS)
   const [options, setOptions] = usePersistentState<GradingOptions>('jev.options', DEFAULT_GRADING_OPTIONS)
-  const [vision, setVision] = usePersistentState<VisionSettings>('jev.vision', VISION_DEFAULTS)
+  const [vision, setVision] = usePersistentState<VisionSettings>('jev.vision', VISION_DEFAULTS, parseVisionSettings)
   const [subjectId, setSubjectId] = usePersistentState<string>('jev.subject', DEFAULT_SUBJECT_ID)
   const [answers, setAnswers] = usePersistentState<Record<string, string>>('jev.answers', {})
   const [maxScores, setMaxScores] = usePersistentState<Record<string, number>>('jev.maxScores', {})
@@ -138,11 +146,17 @@ export default function App() {
     [activeSubject, answers, maxScoreOf, options, setResults, settings, transcripts, vision.model],
   )
 
-  /** 上传答题截图 → 识图模型转文字 → 填入作答 →（可选）自动交给 Jev 判分。 */
+  /** 上传答题截图 → 识别引擎（EasyOCR 或 OpenAI 兼容视觉模型）转文字 → 填入作答 →（可选）自动交给 Jev 判分。 */
   const transcribeShots = useCallback(
     async (question: ExamQuestion, files: File[]) => {
+      const easyOcr = vision.engine === 'easyocr'
       if (!visionConfigured) {
-        setTranscriptErrors((prev) => ({ ...prev, [question.id]: '请先在「接口设置」里填写识图模型的 Base URL / API Key / 模型名' }))
+        setTranscriptErrors((prev) => ({
+          ...prev,
+          [question.id]: easyOcr
+            ? '请先在「接口设置」里填写 EasyOCR Access Key（也可切换成识图模型）'
+            : '请先在「接口设置」里填写识图模型的 Base URL / API Key / 模型名（也可切换成 EasyOCR）',
+        }))
         return
       }
       setTranscribing((prev) => ({ ...prev, [question.id]: true }))
@@ -150,15 +164,28 @@ export default function App() {
       if (!visionControllerRef.current) visionControllerRef.current = new AbortController()
       const signal = visionControllerRef.current.signal
       try {
-        const images = await prepareImageFiles(files)
-        const call = await transcribeAnswerImages({
-          settings: vision,
-          images,
-          question,
-          subject: activeSubject,
-          signal,
-        })
-        const transcript = buildTranscript(question.id, call, images)
+        let call: VisionCallResult
+        let fileNames: string[]
+        if (easyOcr) {
+          const images = await prepareEasyOcrImages(files)
+          fileNames = images.map((image) => image.name)
+          call = await transcribeWithEasyOcr({ settings: vision, images, signal })
+        } else {
+          const images = await prepareImageFiles(files)
+          fileNames = images.map((image) => image.name ?? '截图')
+          call = await transcribeAnswerImages({
+            settings: vision,
+            images,
+            question,
+            subject: activeSubject,
+            signal,
+          })
+        }
+        const transcript = buildTranscript(
+          question.id,
+          call,
+          fileNames.map((name) => ({ name })),
+        )
         setAnswers((prev) => ({ ...prev, [question.id]: call.text }))
         setTranscripts((prev) => ({ ...prev, [question.id]: transcript }))
         if (vision.autoGrade && configured) {
@@ -174,7 +201,10 @@ export default function App() {
           })
         }
       } catch (error) {
-        setTranscriptErrors((prev) => ({ ...prev, [question.id]: describeVisionError(error) }))
+        setTranscriptErrors((prev) => ({
+          ...prev,
+          [question.id]: easyOcr ? describeEasyOcrError(error) : describeVisionError(error),
+        }))
       } finally {
         setTranscribing((prev) => ({ ...prev, [question.id]: false }))
       }
@@ -226,13 +256,26 @@ export default function App() {
     setVisionTesting(true)
     setVisionTestMessage(null)
     try {
-      const call = await pingVision(vision)
-      setVisionTestMessage({
-        ok: true,
-        text: `识图连接成功：模型 ${call.model ?? vision.model}，回复「${call.reply}」，耗时 ${call.elapsedMs} ms（${call.url}）`,
-      })
+      if (vision.engine === 'easyocr') {
+        const call = await pingEasyOcr(vision)
+        setVisionTestMessage({
+          ok: true,
+          text: `EasyOCR 连接成功：${call.message}，消耗 ${call.cost ?? '—'} 点${
+            call.remainingQuota !== undefined ? `，剩余 ${call.remainingQuota} 点` : ''
+          }，耗时 ${call.elapsedMs} ms（${call.url}）`,
+        })
+      } else {
+        const call = await pingVision(vision)
+        setVisionTestMessage({
+          ok: true,
+          text: `识图连接成功：模型 ${call.model ?? vision.model}，回复「${call.reply}」，耗时 ${call.elapsedMs} ms（${call.url}）`,
+        })
+      }
     } catch (error) {
-      setVisionTestMessage({ ok: false, text: describeVisionError(error) })
+      setVisionTestMessage({
+        ok: false,
+        text: vision.engine === 'easyocr' ? describeEasyOcrError(error) : describeVisionError(error),
+      })
     } finally {
       setVisionTesting(false)
     }
@@ -245,11 +288,20 @@ export default function App() {
       subject_id: activeSubject.id,
       endpoint: `${settings.baseUrl.replace(/\/+$/, '')}/v1/systemone`,
       model: settings.model,
-      vision: {
-        endpoint: normalizeVisionEndpoint(vision.baseUrl),
-        model: vision.model,
-        auto_grade: vision.autoGrade,
-      },
+      vision:
+        vision.engine === 'easyocr'
+          ? {
+              engine: vision.engine,
+              endpoint: normalizeEasyOcrEndpoint(vision.easyocrEndpoint),
+              model: 'easyocr',
+              auto_grade: vision.autoGrade,
+            }
+          : {
+              engine: vision.engine,
+              endpoint: normalizeVisionEndpoint(vision.baseUrl),
+              model: vision.model,
+              auto_grade: vision.autoGrade,
+            },
       grading_options: options,
       total_score: totalScore,
       total_max_score: totalMax,
@@ -266,6 +318,7 @@ export default function App() {
             const transcript = transcripts[question.id]
             if (!transcript) return null
             return {
+              engine: transcript.engine ?? null,
               model: transcript.model,
               file_names: transcript.fileNames,
               at: transcript.at,
@@ -365,7 +418,7 @@ export default function App() {
           <div>
             <h1>多学科试卷 AI 评分演示</h1>
             <p>
-              语文 · 数学 · 化学 · 生物 · 英语（作文）· 地理 · 历史 · 答题截图经识图模型转文字，再用 TypeSafe Jev{' '}
+              语文 · 数学 · 化学 · 生物 · 英语（作文）· 地理 · 历史 · 答题截图经 EasyOCR 或识图模型转文字，再用 TypeSafe Jev{' '}
               <code>noul</code> / <code>choice</code> / <code>score</code> 三原语判分
             </p>
           </div>
@@ -442,12 +495,12 @@ export default function App() {
 
       <ol className="tips">
         <li>
-          在「接口设置」里填入 Jev 的 API Key，以及识图模型（OpenAI 兼容）的 Base URL / API Key / 模型名
-          —— 两者都只存在浏览器 localStorage，不会上传到任何服务器。
+          在「接口设置」里填入 Jev 的 API Key；识别引擎二选一：EasyOCR（只填 Access Key）或 OpenAI 兼容视觉模型的
+          Base URL / API Key / 模型名 —— 都只存在浏览器 localStorage，不会上传到任何服务器。
         </li>
         <li>切换上方科目切换题库；每题点「演示作答」按钮填入示例答案，或自己输入。</li>
         <li>
-          每题「演示作答」后面有「上传答题截图」（也可以直接 Ctrl·V 粘贴）：识图模型先转成文字填入「学生作答」，
+          每题「演示作答」后面有「上传答题截图」（也可以直接 Ctrl·V 粘贴）：识别引擎先转成文字填入「学生作答」，
           随后自动交给 Jev 判分；识别文字可人工修改后再重新批改，缩略图可点击看大图或删除重传。
         </li>
         <li>点「批改本题」看单题判定过程，或「一键批改全部」拿到本科总分并导出 JSON。</li>

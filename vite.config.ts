@@ -80,8 +80,68 @@ function visionProxyPlugin(): Plugin {
   }
 }
 
+/**
+ * EasyOCR 在线 OCR 的同源代理：官方接口支持 CORS，但代理可以让内网/受限环境也能用，
+ * 生产环境用 api/easyocr-proxy.ts 提供同样语义的路径。
+ *
+ *   POST /api/easyocr-proxy  →  POST https://console.easyocr.org/api/ocr
+ *
+ * multipart 请求体与 X-Access-Key 请求头原样透传；换目标用 EASYOCR_TARGET 环境变量。
+ */
+const EASYOCR_TARGET = process.env.EASYOCR_TARGET ?? 'https://console.easyocr.org/api/ocr'
+
+function easyOcrProxyPlugin(): Plugin {
+  const attach = (middlewares: Connect.Server) => {
+    middlewares.use('/api/easyocr-proxy', async (req, res) => {
+      if (req.method !== 'POST') {
+        res.statusCode = 405
+        res.setHeader('content-type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify({ error: 'EasyOCR 代理只接受 POST' }))
+        return
+      }
+
+      try {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(chunk as Buffer)
+        const upstream = await fetch(EASYOCR_TARGET, {
+          method: 'POST',
+          headers: {
+            // multipart 的 boundary 在 content-type 里，必须原样透传
+            'content-type': String(req.headers['content-type'] ?? ''),
+            ...(req.headers['x-access-key'] ? { 'X-Access-Key': String(req.headers['x-access-key']) } : {}),
+          },
+          body: Buffer.concat(chunks),
+        })
+        const body = Buffer.from(await upstream.arrayBuffer())
+        res.statusCode = upstream.status
+        res.setHeader('content-type', upstream.headers.get('content-type') ?? 'application/json')
+        res.end(body)
+      } catch (error) {
+        res.statusCode = 502
+        res.setHeader('content-type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify({
+            error: 'error',
+            message: `EasyOCR 代理请求失败：${error instanceof Error ? error.message : String(error)}`,
+          }),
+        )
+      }
+    })
+  }
+
+  return {
+    name: 'easyocr-dev-proxy',
+    configureServer(server) {
+      attach(server.middlewares)
+    },
+    configurePreviewServer(server) {
+      attach(server.middlewares)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), visionProxyPlugin()],
+  plugins: [react(), visionProxyPlugin(), easyOcrProxyPlugin()],
   server: {
     port: 5199,
     proxy,

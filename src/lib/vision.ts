@@ -23,10 +23,19 @@ import type {
 } from '../types/vision'
 
 export const VISION_DEFAULTS: VisionSettings = {
+  engine: 'llm',
   baseUrl: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
   apiKey: '',
+  easyocrAccessKey: '',
+  easyocrEndpoint: 'https://console.easyocr.org/api/ocr',
   autoGrade: true,
+}
+
+/** 兼容旧版 localStorage：老设置没有 engine / EasyOCR 字段，读出来补齐默认值。 */
+export function parseVisionSettings(value: unknown): VisionSettings | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  return { ...VISION_DEFAULTS, ...(value as Partial<VisionSettings>) }
 }
 
 /** 一次最多几张截图（多张会作为同一条 user 消息里的多个 image_url）。 */
@@ -107,6 +116,7 @@ export function resolveVisionEndpoints(
 }
 
 export function isVisionConfigured(settings: VisionSettings): boolean {
+  if (settings.engine === 'easyocr') return Boolean(settings.easyocrAccessKey.trim())
   return Boolean(settings.apiKey.trim() && normalizeVisionEndpoint(settings.baseUrl))
 }
 
@@ -379,6 +389,7 @@ export async function transcribeAnswerImages(input: TranscribeInput): Promise<Vi
   const call = await callChatCompletions(settings, requestBody, input)
   return {
     text: extractVisionText(call.payload),
+    engine: 'llm',
     model: call.model,
     usage: call.usage,
     elapsedMs: call.elapsedMs,
@@ -494,12 +505,13 @@ export function describeVisionError(error: unknown): string {
 export function buildTranscript(
   questionId: string,
   result: VisionCallResult,
-  images: VisionImage[],
+  images: Array<{ name?: string }>,
 ): ScreenshotTranscript {
   return {
     id: `${questionId}-${Date.now()}`,
     questionId,
     text: result.text,
+    engine: result.engine,
     model: result.model ?? '',
     fileNames: images.map((image) => image.name ?? '截图'),
     elapsedMs: result.elapsedMs,
