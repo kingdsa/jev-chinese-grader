@@ -196,7 +196,8 @@ location /api/vision-proxy/ {
 
 也可以直接在设置里把 Base URL 填成你自己开了 CORS 的反向代理地址（例如 `/api/openai/v1`）。
 
-Vercel 部署时，项目已内置带白名单的 Serverless Function `api/vision-proxy/[...path].ts`：
+Vercel 部署时，项目已内置带白名单的 Serverless Function `api/vision-proxy/chat/completions.ts`
+（文件名即路由，非 Next 项目的 `/api` 不支持 `[...path]` 动态段，写成固定路径才生效）：
 
 - 默认只允许转发到 `https://api.openai.com`；要接自建网关，在 Vercel 环境变量 `VISION_ALLOWED_HOSTS`
   里追加域名（逗号分隔，支持 `*.example.com`），否则会返回 403 并提示。
@@ -223,3 +224,7 @@ Vercel 部署时，项目已内置带白名单的 Serverless Function `api/visio
 - Quick start：<https://docs.typesafe.ai/introduction/quickstart>
 - 三种原语：<https://docs.typesafe.ai/primitives>（Choice / Score / Noul）
 - API Key 与 Playground：<https://console.typesafe.ai/>
+
+## 友情链接
+
+- [LINUX DO](https://linux.do/)

@@ -6,7 +6,7 @@
     }
   ],
   "functions": {
-    "api/vision-proxy/**": {
+    "api/vision-proxy/chat/completions.ts": {
       "maxDuration": 60
     }
   }

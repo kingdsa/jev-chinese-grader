@@ -141,6 +141,14 @@ code {
   border-radius: 8px;
 }
 
+.btn--icon {
+  padding: 7px;
+}
+
+.btn--icon svg {
+  display: block;
+}
+
 /* ---------- 设置面板 ---------- */
 .settings {
   background: var(--bg-soft);

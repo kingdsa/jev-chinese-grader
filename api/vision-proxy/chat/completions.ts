@@ -1,6 +1,9 @@
 /**
  * 生产环境的识图代理（Vercel Serverless Function，Node runtime）。
  *
+ * 文件名即路由：本项目只请求 /api/vision-proxy/chat/completions，
+ * 所以用固定路径文件而不是 [...path]（非 Next 项目的 /api 不做动态段路由，会 404）。
+ *
  * 与 dev / preview 里的通用转发不同，这里带白名单：只转发到 VISION_ALLOWED_HOSTS
  * 允许的网关（默认 api.openai.com），避免上线后变成公开的 SSRF 跳板。
  *
@@ -15,7 +18,7 @@ export const config = { maxDuration: 60 }
 const DEFAULT_ALLOWED_HOSTS = ['api.openai.com']
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 const MAX_BODY_MB = MAX_BODY_BYTES / 1024 / 1024
-const PROXY_PREFIX = '/api/vision-proxy'
+const CHAT_PATH = '/chat/completions'
 
 function allowedHosts(): string[] {
   const raw = process.env.VISION_ALLOWED_HOSTS?.trim()
@@ -39,16 +42,11 @@ function sendJson(res: ServerResponse, status: number, message: string): void {
   res.end(JSON.stringify({ error: { message } }))
 }
 
+/** 只保留查询串（例如 Azure 风格的 ?api-version=...），路径固定为 /chat/completions。 */
 function resolveUpstreamPath(url: string | undefined): string {
   const raw = url ?? ''
-  let path = raw
-  if (/^https?:\/\//i.test(raw)) {
-    const parsed = new URL(raw)
-    path = `${parsed.pathname}${parsed.search}`
-  }
-  const index = path.indexOf(PROXY_PREFIX)
-  const rest = index >= 0 ? path.slice(index + PROXY_PREFIX.length) : path
-  return rest.startsWith('/') ? rest : `/${rest}`
+  const queryIndex = raw.indexOf('?')
+  return queryIndex >= 0 ? `${CHAT_PATH}${raw.slice(queryIndex)}` : CHAT_PATH
 }
 
 async function readBody(req: IncomingMessage): Promise<Buffer> {
