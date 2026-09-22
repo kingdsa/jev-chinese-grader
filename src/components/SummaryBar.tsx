@@ -1,6 +1,7 @@
 import { formatScore } from '../lib/format'
 
 interface SummaryBarProps {
+  subjectLabel?: string
   totalScore: number
   totalMax: number
   gradedCount: number
@@ -20,7 +21,9 @@ export function SummaryBar(props: SummaryBarProps) {
   return (
     <div className="summary">
       <div className="summary__total">
-        <span className="summary__label">总分（满分 {formatScore(props.totalMax)}）</span>
+        <span className="summary__label">
+          {props.subjectLabel ? `${props.subjectLabel}总分` : '总分'}（满分 {formatScore(props.totalMax)}）
+        </span>
         <span className="summary__value">
           {formatScore(props.totalScore)}
           <em>得分率 {percent}%</em>
@@ -54,7 +57,7 @@ export function SummaryBar(props: SummaryBarProps) {
         <button className="btn" onClick={props.onExport} disabled={props.gradedCount === 0}>
           导出结果 JSON
         </button>
-        <button className="btn btn--ghost" onClick={props.onReset}>
+        <button className="btn btn--ghost" onClick={props.onReset} title="只清空当前科目的作答与结果">
           重置
         </button>
       </div>

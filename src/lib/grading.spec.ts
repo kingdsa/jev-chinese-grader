@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { QUESTION_BANK } from '../data/questions'
+import { CHINESE_QUESTIONS } from '../data/subjects/chinese'
+import { subjectById } from '../data/subjects'
 import { DEFAULT_GRADING_OPTIONS, buildRequestQuestions, gradeQuestion } from './grading'
 import type { ExamQuestion, RubricPoint } from '../types/exam'
 import type { GradingOptions, JevSettings } from '../types/jev'
@@ -7,7 +8,7 @@ import type { GradingOptions, JevSettings } from '../types/jev'
 const settings: JevSettings = { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', apiKey: 'ts-test' }
 
 function questionById(id: string): ExamQuestion {
-  const question = QUESTION_BANK.find((item) => item.id === id)
+  const question = CHINESE_QUESTIONS.find((item) => item.id === id)
   if (!question) throw new Error(`missing question ${id}`)
   return question
 }
@@ -130,7 +131,28 @@ describe('gradeQuestion 判分链路', () => {
     expect(result.reviewReasons.join('')).toContain('摇摆')
   })
 
-  it('选择题按选项判定，错选不得分并保留概率分布', async () => {
+  it('Choice 原语仍可用：按选项判定，错选不得分并保留概率分布', async () => {
+    // 演示题库已全部改为填空/解答题，这里用合成题保证 Choice 原语链路不回退。
+    const choiceQuestion: ExamQuestion = {
+      id: 'test-choice',
+      no: 99,
+      kindLabel: '选择题（仅测试用）',
+      stem: '下列各句中成语使用不正确的一项是（　　）',
+      standardAnswer: 'C',
+      defaultMaxScore: 3,
+      rubric: [],
+      levels: ['没有作答', '选项错误', '选项正确'],
+      choice: {
+        options: { A: '正确', B: '正确', C: '错误', D: '正确' },
+        correct: 'C',
+      },
+      demoAnswers: [
+        { label: '满分示例', content: 'C' },
+        { label: '中等示例', content: 'B' },
+        { label: '零分示例', content: 'A' },
+      ],
+    }
+
     mockAnswers({
       attempt: { type: 'noul', noul: 0.95 },
       quality: { type: 'score', score: 1, confidence: 0.8, legend: {}, probabilities: {} },
@@ -143,9 +165,9 @@ describe('gradeQuestion 判分链路', () => {
     })
 
     const result = await gradeQuestion({
-      question: questionById('q7'),
+      question: choiceQuestion,
       maxScore: 3,
-      studentAnswer: 'C。栩栩如生只能形容艺术形象逼真。',
+      studentAnswer: 'C。',
       settings,
       options: DEFAULT_GRADING_OPTIONS,
     })
@@ -161,15 +183,65 @@ describe('gradeQuestion 判分链路', () => {
     })
 
     const wrong = await gradeQuestion({
-      question: questionById('q7'),
+      question: choiceQuestion,
       maxScore: 3,
-      studentAnswer: 'B。应该用义不容辞。',
+      studentAnswer: 'B。',
       settings,
       options: DEFAULT_GRADING_OPTIONS,
     })
 
     expect(wrong.score).toBe(0)
     expect(wrong.choice?.matched).toBe(false)
+  })
+})
+
+describe('科目配置进入 Jev 请求', () => {
+  it('数学题会带上 subject、学科英文措辞与学科判分约定', async () => {
+    const math = subjectById('math')
+    const question = math.questions[3]
+    const fetchMock = mockAnswers({
+      p_0: { type: 'noul', noul: 0.9 },
+      p_1: { type: 'noul', noul: 0.9 },
+      attempt: { type: 'noul', noul: 0.9 },
+      quality: { type: 'score', score: 3, confidence: 0.9, legend: {}, probabilities: {} },
+    })
+
+    await gradeQuestion({
+      question,
+      subject: math,
+      maxScore: question.defaultMaxScore,
+      studentAnswer: '60',
+      settings,
+      options: DEFAULT_GRADING_OPTIONS,
+    })
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.state.subject).toBe('数学')
+    expect(body.state.subject_id).toBe('math')
+    expect(body.questions.p_0.instructions).toContain('mathematics')
+    expect(body.questions.p_0.instructions).toContain('mathematically equivalent')
+    expect(body.questions.quality.instructions).toContain('mathematics')
+  })
+
+  it('不传 subject 时按语文兜底', async () => {
+    const fetchMock = mockAnswers({
+      p_0: { type: 'noul', noul: 0.9 },
+      p_1: { type: 'noul', noul: 0.9 },
+      attempt: { type: 'noul', noul: 0.9 },
+      quality: { type: 'score', score: 2, confidence: 0.9, legend: {}, probabilities: {} },
+    })
+
+    await gradeQuestion({
+      question: questionById('q1'),
+      maxScore: 2,
+      studentAnswer: '秋水共长天一色',
+      settings,
+      options: DEFAULT_GRADING_OPTIONS,
+    })
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.state.subject).toBe('语文')
+    expect(body.questions.p_0.instructions).toContain('Chinese language')
   })
 })
 

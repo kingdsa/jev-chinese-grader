@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "纯前端语文考试 AI 评分 demo：用 TypeSafe Jev 的 noul / choice / score 原语对照标准答案判分，满分可自定义",
+  "description": "纯前端多学科试卷 AI 评分 demo：语文/数学/化学/生物/英语作文/地理/历史，用 TypeSafe Jev 的 noul / choice / score 原语对照标准答案判分，满分可自定义",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

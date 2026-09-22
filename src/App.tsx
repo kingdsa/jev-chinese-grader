@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { QuestionCard } from './components/QuestionCard'
 import { SettingsPanel } from './components/SettingsPanel'
+import { SubjectTabs } from './components/SubjectTabs'
 import { SummaryBar } from './components/SummaryBar'
-import { QUESTION_BANK } from './data/questions'
+import { DEFAULT_SUBJECT_ID, SUBJECTS, subjectById } from './data/subjects'
 import { usePersistentState } from './hooks/usePersistentState'
 import { formatScore } from './lib/format'
 import { askJev, isJevConfigured, isNoulAnswer, JEV_DEFAULTS } from './lib/jev'
@@ -29,6 +30,7 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
 export default function App() {
   const [settings, setSettings] = usePersistentState<JevSettings>('jev.settings', JEV_DEFAULTS)
   const [options, setOptions] = usePersistentState<GradingOptions>('jev.options', DEFAULT_GRADING_OPTIONS)
+  const [subjectId, setSubjectId] = usePersistentState<string>('jev.subject', DEFAULT_SUBJECT_ID)
   const [answers, setAnswers] = usePersistentState<Record<string, string>>('jev.answers', {})
   const [maxScores, setMaxScores] = usePersistentState<Record<string, number>>('jev.maxScores', {})
   const [rubrics, setRubrics] = usePersistentState<Record<string, RubricPoint[]>>('jev.rubrics', {})
@@ -42,6 +44,8 @@ export default function App() {
   const controllerRef = useRef<AbortController | null>(null)
 
   const configured = isJevConfigured(settings)
+  const activeSubject = useMemo(() => subjectById(subjectId), [subjectId])
+  const bank = activeSubject.questions
   const rubricOf = useCallback(
     (question: ExamQuestion) => rubrics[question.id] ?? question.rubric,
     [rubrics],
@@ -52,15 +56,22 @@ export default function App() {
   )
 
   const totalMax = useMemo(
-    () => QUESTION_BANK.reduce((sum, question) => sum + maxScoreOf(question), 0),
-    [maxScoreOf],
+    () => bank.reduce((sum, question) => sum + maxScoreOf(question), 0),
+    [bank, maxScoreOf],
   )
   const gradedResults = useMemo(
-    () => QUESTION_BANK.map((question) => results[question.id]).filter((item): item is GradingResult => Boolean(item)),
-    [results],
+    () => bank.map((question) => results[question.id]).filter((item): item is GradingResult => Boolean(item)),
+    [bank, results],
   )
   const totalScore = useMemo(() => gradedResults.reduce((sum, item) => sum + item.score, 0), [gradedResults])
   const reviewCount = useMemo(() => gradedResults.filter((item) => item.needsReview).length, [gradedResults])
+  const gradedCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const subject of SUBJECTS) {
+      counts[subject.id] = subject.questions.filter((question) => results[question.id]).length
+    }
+    return counts
+  }, [results])
 
   const gradeOne = useCallback(
     async (question: ExamQuestion) => {
@@ -71,6 +82,7 @@ export default function App() {
       try {
         const result = await gradeQuestion({
           question,
+          subject: activeSubject,
           maxScore: maxScoreOf(question),
           studentAnswer: answers[question.id] ?? '',
           settings,
@@ -84,17 +96,17 @@ export default function App() {
         setRunning((prev) => ({ ...prev, [question.id]: false }))
       }
     },
-    [answers, maxScoreOf, options, setResults, settings],
+    [activeSubject, answers, maxScoreOf, options, setResults, settings],
   )
 
   const gradeAll = useCallback(async () => {
     controllerRef.current = new AbortController()
     try {
-      await runWithConcurrency([...QUESTION_BANK], 2, gradeOne)
+      await runWithConcurrency([...bank], 2, gradeOne)
     } finally {
       controllerRef.current = null
     }
-  }, [gradeOne])
+  }, [bank, gradeOne])
 
   const cancelAll = useCallback(() => {
     controllerRef.current?.abort()
@@ -107,7 +119,7 @@ export default function App() {
     try {
       const call = await askJev(
         settings,
-        { probe: 'connection test from the Chinese-exam grading demo' },
+        { probe: 'connection test from the multi-subject exam grading demo' },
         { ping: { type: 'noul', instructions: 'Is this a connection test?' } },
         { timeoutMs: 10_000, maxRetries: 0 },
       )
@@ -128,12 +140,14 @@ export default function App() {
   const exportResults = useCallback(() => {
     const payload = {
       generated_at: new Date().toISOString(),
+      subject: activeSubject.label,
+      subject_id: activeSubject.id,
       endpoint: `${settings.baseUrl.replace(/\/+$/, '')}/v1/systemone`,
       model: settings.model,
       grading_options: options,
       total_score: totalScore,
       total_max_score: totalMax,
-      items: QUESTION_BANK.map((question) => {
+      items: bank.map((question) => {
         const result = results[question.id]
         return {
           no: question.no,
@@ -163,17 +177,44 @@ export default function App() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `jev-grading-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
+    link.download = `jev-grading-${activeSubject.id}-${new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/[:T]/g, '-')}.json`
     link.click()
     URL.revokeObjectURL(url)
-  }, [answers, maxScoreOf, maxScores, options, results, settings.baseUrl, settings.model, totalMax, totalScore])
+  }, [
+    activeSubject,
+    answers,
+    bank,
+    maxScoreOf,
+    options,
+    results,
+    settings.baseUrl,
+    settings.model,
+    totalMax,
+    totalScore,
+  ])
 
   const resetAll = useCallback(() => {
-    setAnswers({})
-    setResults(EMPTY_RESULTS)
-    setErrors(EMPTY_ERRORS)
+    const ids = new Set(bank.map((question) => question.id))
+    setAnswers((prev) => {
+      const next = { ...prev }
+      for (const id of ids) delete next[id]
+      return next
+    })
+    setResults((prev) => {
+      const next = { ...prev }
+      for (const id of ids) delete next[id]
+      return next
+    })
+    setErrors((prev) => {
+      const next = { ...prev }
+      for (const id of ids) delete next[id]
+      return next
+    })
     setTestMessage(null)
-  }, [setAnswers, setResults])
+  }, [bank, setAnswers, setResults])
 
   const updateSettings = useCallback(
     (patch: Partial<JevSettings>) => setSettings((prev) => ({ ...prev, ...patch })),
@@ -190,10 +231,10 @@ export default function App() {
         <div className="app__brand">
           <span className="app__logo">Jev</span>
           <div>
-            <h1>语文试卷 AI 评分演示</h1>
+            <h1>多学科试卷 AI 评分演示</h1>
             <p>
-              学生答案 vs 标准答案 · TypeSafe Jev <code>noul</code> / <code>choice</code> / <code>score</code>{' '}
-              三原语判分 · 每题满分可自定义
+              语文 · 数学 · 化学 · 生物 · 英语（作文）· 地理 · 历史 · TypeSafe Jev{' '}
+              <code>noul</code> / <code>choice</code> / <code>score</code> 三原语判分
             </p>
           </div>
         </div>
@@ -223,11 +264,20 @@ export default function App() {
         />
       )}
 
+      <SubjectTabs
+        subjects={SUBJECTS}
+        activeId={activeSubject.id}
+        gradedCounts={gradedCounts}
+        running={Object.values(running).some(Boolean)}
+        onChange={setSubjectId}
+      />
+
       <SummaryBar
+        subjectLabel={activeSubject.label}
         totalScore={totalScore}
         totalMax={totalMax}
         gradedCount={gradedResults.length}
-        questionCount={QUESTION_BANK.length}
+        questionCount={bank.length}
         reviewCount={reviewCount}
         running={Object.values(running).some(Boolean)}
         configured={configured}
@@ -237,14 +287,18 @@ export default function App() {
         onReset={resetAll}
       />
 
+      <p className="subject-blurb">
+        <b>{activeSubject.label}</b>：{activeSubject.blurb}　共 {bank.length} 道演示题，每题满分、评分要点都可以改。
+      </p>
+
       <ol className="tips">
         <li>在「接口设置」里填入 API Key（只存在浏览器 localStorage，不会上传到任何服务器）。</li>
-        <li>每题点「演示作答」按钮填入示例答案，或自己输入；满分、评分要点都可以直接改。</li>
-        <li>点「批改本题」看单题判定过程，或「一键批改全部」拿到总分并导出 JSON。</li>
+        <li>切换上方科目切换题库；每题点「演示作答」按钮填入示例答案，或自己输入。</li>
+        <li>点「批改本题」看单题判定过程，或「一键批改全部」拿到本科总分并导出 JSON。</li>
       </ol>
 
       <main className="app__main">
-        {QUESTION_BANK.map((question) => (
+        {bank.map((question) => (
           <QuestionCard
             key={question.id}
             question={question}
@@ -275,7 +329,8 @@ export default function App() {
 
       <footer className="app__footer">
         <span>
-          总分 {formatScore(totalScore)} / {formatScore(totalMax)} · 判分全部在浏览器里完成，无后端
+          {activeSubject.label}总分 {formatScore(totalScore)} / {formatScore(totalMax)} ·
+          判分全部在浏览器里完成，无后端
         </span>
         <span>
           评分逻辑：得分点 Noul 覆盖率 × 权重 + Jev 整体档位分（Score）按权重融合，再取整裁剪到 [0, 满分]

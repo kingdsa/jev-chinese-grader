@@ -260,6 +260,70 @@ code {
   color: var(--ink-soft);
 }
 
+/* ---------- 科目切换 ---------- */
+.subjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subject-tab {
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 86px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.subject-tab:hover:not(:disabled) {
+  border-color: #c9c9e0;
+  transform: translateY(-1px);
+}
+
+.subject-tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.subject-tab.is-active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.24);
+}
+
+.subject-tab__label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.subject-tab__meta {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.subject-tab.is-active .subject-tab__meta {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.subject-blurb {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.subject-blurb b {
+  color: var(--ink);
+}
+
 /* ---------- 汇总条 ---------- */
 .summary {
   position: sticky;

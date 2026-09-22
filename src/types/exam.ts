@@ -1,5 +1,30 @@
 /** 题库与判分结果的数据结构。 */
 
+export type SubjectId =
+  | 'chinese'
+  | 'math'
+  | 'chemistry'
+  | 'biology'
+  | 'english'
+  | 'geography'
+  | 'history'
+
+/**
+ * 科目配置：决定 Jev state 里的 subject 字段、
+ * 判分 instructions 的学科措辞，以及该学科的特殊判分约定。
+ */
+export interface SubjectProfile {
+  id: SubjectId
+  /** 中文科目名，界面展示用，同时写进 Jev state.subject。 */
+  label: string
+  /** 科目英文名/题型名，拼进 Jev instructions（模型对英文指令更稳）。 */
+  promptLabel: string
+  /** 一句话说明该科目批改特点，展示在科目页。 */
+  blurb: string
+  /** 学科特殊判分约定，会追加到每个得分点的 instructions。 */
+  guidance?: string
+}
+
 export interface RubricPoint {
   id: string
   /** 得分点描述，直接作为 Jev 的判定命题。 */

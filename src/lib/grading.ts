@@ -12,7 +12,15 @@
 
 import { alignAnswers, askJev, JevError, type JevCallResult } from './jev'
 import type { GradingOptions, JevAnswers, JevQuestions, JevSettings } from '../types/jev'
-import type { ExamQuestion, GradingResult, QualityOutcome, RubricOutcome } from '../types/exam'
+import type { ExamQuestion, GradingResult, QualityOutcome, RubricOutcome, SubjectProfile } from '../types/exam'
+
+/** 未显式传科目时的兜底（语文），保证单独调用判分引擎也能工作。 */
+export const DEFAULT_SUBJECT_PROFILE: SubjectProfile = {
+  id: 'chinese',
+  label: '语文',
+  promptLabel: 'Chinese language',
+  blurb: '',
+}
 
 export const DEFAULT_GRADING_OPTIONS: GradingOptions = {
   strategy: 'blend',
@@ -31,6 +39,8 @@ export interface GradingInput {
   studentAnswer: string
   settings: JevSettings
   options: GradingOptions
+  /** 所属科目：决定 state.subject 与判分 instructions 的学科措辞。 */
+  subject?: SubjectProfile
   signal?: AbortSignal
 }
 
@@ -44,10 +54,16 @@ export function isBlankAnswer(answer: string): boolean {
 }
 
 /** 构造发给 Jev 的 state：中文原文 + 结构化字段；instructions 用英文（模型最稳）。 */
-export function buildRequestState(question: ExamQuestion, maxScore: number, studentAnswer: string) {
+export function buildRequestState(
+  question: ExamQuestion,
+  maxScore: number,
+  studentAnswer: string,
+  subject: SubjectProfile = DEFAULT_SUBJECT_PROFILE,
+) {
   const answerLength = studentAnswer.replace(/\s|\u3000/g, '').length
   return {
-    subject: '语文',
+    subject: subject.label,
+    subject_id: subject.id,
     question_number: question.no,
     question_type: question.kindLabel,
     max_score: maxScore,
@@ -65,17 +81,22 @@ export function buildRequestState(question: ExamQuestion, maxScore: number, stud
   }
 }
 
-export function buildRequestQuestions(question: ExamQuestion, maxScore: number): JevQuestions {
+export function buildRequestQuestions(
+  question: ExamQuestion,
+  maxScore: number,
+  subject: SubjectProfile = DEFAULT_SUBJECT_PROFILE,
+): JevQuestions {
   const questions: JevQuestions = {}
 
   question.rubric.forEach((point, index) => {
     questions[RUBRIC_KEY(index)] = {
       type: 'noul',
       instructions:
-        `The student's answer to this Chinese language exam question earns this scoring point: "${point.label}". ` +
+        `The student's answer to this ${subject.promptLabel} exam question earns this scoring point: "${point.label}". ` +
         'Judge this scoring point on its own, comparing the student answer with the reference answer. ' +
         'Answer yes only when the student answer actually provides the required content or achievement; ' +
-        'do not answer yes for merely mentioning the topic, using similar wording, or writing a lot.',
+        'do not answer yes for merely mentioning the topic, using similar wording, or writing a lot.' +
+        (subject.guidance ? ` Subject-specific rules: ${subject.guidance}` : ''),
       criteria: {
         true: point.detail
           ? `算得分：${point.detail}`
@@ -99,7 +120,8 @@ export function buildRequestQuestions(question: ExamQuestion, maxScore: number):
   questions[QUALITY_KEY] = {
     type: 'score',
     instructions:
-      `How well does the student answer match the reference answer, in terms of the scoring content required by a maximum of ${maxScore} points? ` +
+      `For this ${subject.promptLabel} question: how well does the student answer match the reference answer, ` +
+      `in terms of the scoring content required by a maximum of ${maxScore} points? ` +
       'Judge content only: how much of the required scoring content is present and how accurate it is. ' +
       'Do not reward or punish length, handwriting, or effort, and ignore the numeric score itself.',
     criteria: question.levels.slice(0, 10),
@@ -313,7 +335,7 @@ function blankResult(input: GradingInput): GradingResult {
     reviewReasons: [],
     notes: ['学生答案为空，本地直接判 0 分（未调用 Jev）'],
     elapsedMs: 0,
-    requestState: buildRequestState(question, maxScore, input.studentAnswer),
+    requestState: buildRequestState(question, maxScore, input.studentAnswer, input.subject),
     requestQuestions: {},
     rawAnswers: {},
   }
@@ -322,8 +344,8 @@ function blankResult(input: GradingInput): GradingResult {
 export async function gradeQuestion(input: GradingInput): Promise<GradingResult> {
   if (isBlankAnswer(input.studentAnswer)) return blankResult(input)
 
-  const state = buildRequestState(input.question, input.maxScore, input.studentAnswer)
-  const questions = buildRequestQuestions(input.question, input.maxScore)
+  const state = buildRequestState(input.question, input.maxScore, input.studentAnswer, input.subject)
+  const questions = buildRequestQuestions(input.question, input.maxScore, input.subject)
   const call = await askJev(input.settings, state, questions, { signal: input.signal })
   return buildResult(input, call, false)
 }

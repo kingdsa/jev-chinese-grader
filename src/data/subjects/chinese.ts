@@ -1,15 +1,15 @@
-import type { ExamQuestion } from '../types/exam'
+import type { ExamQuestion } from '../../types/exam'
 
 /**
  * 演示题库：10 道语文题，覆盖默写、实词、翻译、鉴赏、现代文阅读、
- * 病句修改、成语选择题、仿写、双空默写、微写作。
+ * 病句修改、成语判断修改、仿写、双空默写、微写作（全部为主观题）。
  *
  * - `standardAnswer` 是阅卷参照的标准答案；
  * - `rubric` 是得分点（weight 即该点分值，最终按权重占比折算到 maxScore）；
  * - `levels` 给 Jev Score 原语用的整体档位描述（2~10 档，必须写「情形」而不是「程度」）；
  * - 满分可以在界面上逐题自定义（defaultMaxScore 只是初始值）。
  */
-export const QUESTION_BANK: ExamQuestion[] = [
+export const CHINESE_QUESTIONS: ExamQuestion[] = [
   {
     id: 'q1',
     no: 1,
@@ -240,31 +240,40 @@ export const QUESTION_BANK: ExamQuestion[] = [
   {
     id: 'q7',
     no: 7,
-    kindLabel: '成语运用（选择题）',
-    stem: '下列各句中加点成语使用不正确的一项是（　　）\nA. 博物馆展出的唐代瓷器精美绝伦，令参观者叹为观止。\nB. 面对突如其来的洪水，抢险队员们义无反顾地冲上了堤坝。\nC. 他的演讲深入浅出，把复杂的量子理论讲得栩栩如生。\nD. 两位老同学在异乡重逢，说起别后的沧桑变化，不禁感慨万千。',
+    kindLabel: '成语运用（判断修改）',
+    stem: '下列各句中，有一句的成语使用不当。请写出该句的序号，说明理由，并写出修改后的句子。\nA. 博物馆展出的唐代瓷器精美绝伦，令参观者叹为观止。\nB. 面对突如其来的洪水，抢险队员们义无反顾地冲上了堤坝。\nC. 他的演讲深入浅出，把复杂的量子理论讲得栩栩如生。\nD. 两位老同学在异乡重逢，说起别后的沧桑变化，不禁感慨万千。',
     standardAnswer:
-      'C。「栩栩如生」形容艺术形象非常逼真，如同活的一样，只能修饰绘画、雕塑、文学形象等，不能用来形容「演讲」「讲解」。',
-    gradingNotes: '选择题按选项判分：选出 C 得满分，否则不得分。',
+      'C 句。「栩栩如生」形容艺术形象非常逼真，如同活的一样，只能修饰绘画、雕塑、文学形象等，不能用来形容「演讲」「讲解」。可把「栩栩如生」改为「引人入胜」（或「生动形象」），即「他的演讲深入浅出，把复杂的量子理论讲得引人入胜」。',
+    gradingNotes: '判断、说理、修改三个环节分别给分；只指出 C 句而得不出理由与修改的，只能得部分分。',
     defaultMaxScore: 3,
-    rubric: [],
-    levels: [
-      '没有作答或所选选项与题意无关',
-      '选了选项但理由与题目要求不符',
-      '选出正确选项，思路清楚',
-    ],
-    choice: {
-      options: {
-        A: '叹为观止使用正确：赞美唐代瓷器精美到极点',
-        B: '义无反顾使用正确：抢险队员毫不犹豫地冲上堤坝',
-        C: '栩栩如生使用错误：形容艺术形象逼真，不能形容「把理论讲得……」',
-        D: '感慨万千使用正确：老同学重逢谈起沧桑变化',
+    rubric: [
+      { id: 'q7-r1', label: '指出 C 句成语使用不当', weight: 1 },
+      {
+        id: 'q7-r2',
+        label: '说明理由：「栩栩如生」形容艺术形象逼真，不能用来形容演讲、讲解',
+        detail: '答到「只能形容艺术形象 / 不能形容演讲、讲解」即可得分',
+        weight: 1,
       },
-      correct: 'C',
-    },
+      {
+        id: 'q7-r3',
+        label: '修改恰当：把「栩栩如生」改为「引人入胜」「生动形象」等，句子通顺且不改变原意',
+        weight: 1,
+      },
+    ],
+    levels: [
+      '空白、指认错误，或只写了与题目无关的内容',
+      '指出 C 句，但理由与修改均不正确',
+      '指出 C 句并说明理由，但修改不当或语句不通顺',
+      '准确指出 C 句，理由说明到位，修改恰当且句子通顺',
+    ],
     demoAnswers: [
-      { label: '正确选项', content: 'C。「栩栩如生」只能形容艺术形象逼真，不能形容演讲、讲解。' },
-      { label: '错误选项', content: 'B。抢险队员的行为应该是「义不容辞」，所以 B 用错了。' },
-      { label: '空白（本地判 0）', content: '' },
+      {
+        label: '满分示例',
+        content:
+          'C 句。「栩栩如生」形容艺术形象非常逼真，不能用来形容演讲、讲解。可改为「他的演讲深入浅出，把复杂的量子理论讲得引人入胜」。',
+      },
+      { label: '中等示例', content: 'C 句。「栩栩如生」用在这里不合适，应该换一个成语。' },
+      { label: '零分示例', content: 'A 句。「叹为观止」不能用来形容瓷器。（指认错误，理由也不成立）' },
     ],
   },
   {
@@ -362,4 +371,4 @@ export const QUESTION_BANK: ExamQuestion[] = [
   },
 ]
 
-export const TOTAL_MAX_SCORE = QUESTION_BANK.reduce((sum, q) => sum + q.defaultMaxScore, 0)
+export const CHINESE_TOTAL_MAX_SCORE = CHINESE_QUESTIONS.reduce((sum, q) => sum + q.defaultMaxScore, 0)
