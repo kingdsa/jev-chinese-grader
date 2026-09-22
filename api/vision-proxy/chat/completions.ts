@@ -6,6 +6,7 @@
  *
  * 与 dev / preview 里的通用转发不同，这里带白名单：只转发到 VISION_ALLOWED_HOSTS
  * 允许的网关（默认 api.openai.com），避免上线后变成公开的 SSRF 跳板。
+ * 默认只接受 https；只支持 http 的网关必须显式写进 VISION_ALLOWED_HOSTS（会明文传输 Key 与图片）。
  *
  *   POST /api/vision-proxy/chat/completions
  *   x-vision-target: https://api.openai.com/v1
@@ -20,10 +21,9 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024
 const MAX_BODY_MB = MAX_BODY_BYTES / 1024 / 1024
 const CHAT_PATH = '/chat/completions'
 
-function allowedHosts(): string[] {
-  const raw = process.env.VISION_ALLOWED_HOSTS?.trim()
-  if (!raw) return DEFAULT_ALLOWED_HOSTS
-  return raw
+/** VISION_ALLOWED_HOSTS 里显式声明的域名（没有则返回空数组）。 */
+function explicitHosts(): string[] {
+  return (process.env.VISION_ALLOWED_HOSTS ?? '')
     .split(',')
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean)
@@ -74,13 +74,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return
   }
 
+  const declared = explicitHosts()
   const isLocalhost = /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname)
-  if (parsed.protocol !== 'https:' && !(isLocalhost && parsed.protocol === 'http:')) {
-    sendJson(res, 400, 'x-vision-target 必须是 https 地址（仅 localhost 允许 http）')
+  // http 只在「显式声明」时放行：localhost 或写进 VISION_ALLOWED_HOSTS 的网关（此时会明文传输 Key 与图片）。
+  const httpAllowed = isLocalhost || hostAllowed(parsed.hostname, declared)
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && httpAllowed)) {
+    sendJson(
+      res,
+      400,
+      'x-vision-target 必须是 https 地址；如果网关只支持 http，请把它的域名写进环境变量 VISION_ALLOWED_HOSTS 显式放行',
+    )
     return
   }
 
-  const patterns = allowedHosts()
+  const patterns = declared.length > 0 ? declared : DEFAULT_ALLOWED_HOSTS
   if (!hostAllowed(parsed.hostname, patterns)) {
     sendJson(
       res,

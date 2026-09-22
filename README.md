@@ -201,7 +201,10 @@ Vercel 部署时，项目已内置带白名单的 Serverless Function `api/visio
 
 - 默认只允许转发到 `https://api.openai.com`；要接自建网关，在 Vercel 环境变量 `VISION_ALLOWED_HOSTS`
   里追加域名（逗号分隔，支持 `*.example.com`），否则会返回 403 并提示。
-- 只允许 https（localhost 调试除外），且不跟随重定向，避免变成公开的 SSRF 跳板。
+- 默认只允许 https；只支持 http 的网关必须显式写进 `VISION_ALLOWED_HOSTS` 才放行（http 会明文
+  传输 Key、图片与转写文字，公网上不要这么用）。函数不跟随重定向，避免变成公开的 SSRF 跳板。
+  注意 Vercel 函数跑在云端，局域网 / 内网 http 地址（如 `192.168.x.x`）它访问不到，需要公网可达
+  的 https 地址。
 - 函数侧限制请求体 4 MB、`maxDuration` 60 s（Hobby 上限，见 `vercel.json`）。截图过多或模型
   特别慢时会超限，可减少截图数量 / 压缩图片，或自己用 Nginx 反代绕过这些平台限制（前端会自动
   先直连、失败再走代理，两条路都行）。
